@@ -3,6 +3,7 @@
 import { chromium } from "/home/andre/Workspace/web-ports/tools/pw/node_modules/playwright-core/index.mjs";
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { carouselIndex, gameIndex } from "./eslist.mjs";
 const url = process.argv[2] ?? "http://localhost:8770/r36s/";
 const out = process.argv[3] ?? "/home/andre/Workspace/web-ports/r36s/tests/out";
 mkdirSync(out, { recursive: true });
@@ -77,11 +78,16 @@ await page.goto(url);
 await page.waitForFunction(() => window.r36s?.ready, null, { timeout: 120000 });
 if (await waitLit(page, 0.05, 30000) <= 0.05) await fail("ES não apareceu");
 await page.waitForTimeout(4000);
-await hold("l");                           // A: entra no SNES (sem clicar antes: testa o foco)
+// cartão real: o ES abre nos Favoritos; desce o carrossel (vertical no EPICMAX) até o SNES (sem clicar: testa o foco)
+const sysIdx = carouselIndex("snes"), dk2Idx = gameIndex("snes", DK2 + ".7z");
+step("positions", { snes: sysIdx, dk2: dk2Idx, dk3: gameIndex("snes", DK3 + ".7z") });
+if (sysIdx < 0 || dk2Idx < 0) await fail("SNES/DK2 não encontrados no cartão");
+for (let i = 0; i < sysIdx; i++) { await hold("s", 80); await page.waitForTimeout(120); }
+await page.waitForTimeout(1500);
+await hold("l");                           // A: entra no SNES
 await page.waitForTimeout(3000);
-// DK2 é o penúltimo da lista: subir do primeiro dá a volta para o último (DK3), mais um sobe para o DK2
-await hold("w"); await page.waitForTimeout(400);
-await hold("w"); await page.waitForTimeout(1500);
+for (let i = 0; i < dk2Idx; i++) { await hold("s", 30); await page.waitForTimeout(30); }   // DK2 na lista de 989
+await page.waitForTimeout(1500);
 await page.screenshot({ path: `${out}/e2e-1-lista-dk2.png` });
 
 // --- 2. DK2 no RetroArch

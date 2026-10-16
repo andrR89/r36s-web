@@ -324,6 +324,8 @@ function parseCfg(text) {
 }
 const textOr404 = url => fetch(url).then(r => r.status === 200 ? r.text() : null, () => null);
 // overrides do cartão que não podem valer na web: teclado/controle, caminhos, drivers
+// opções de núcleo do cartão que não existem no núcleo web (recompiladores ARM): o picodrive web quebra com drc ligado
+const CORE_OPT_BLOCK = /(_drc|_drc_thread|_dynarec|_dynarec_.*)$/;
 const OVERRIDE_BLOCK = /^(input_|joypad_|.*_directory$|.*_path$|video_driver$|audio_driver$|menu_driver$|libretro_|core_options|global_core_options|config_save_on_exit|savefile|savestate|sort_|auto_)/;
 
 // ---------- início ----------
@@ -435,6 +437,7 @@ async function main() {
   const opts = parseCfg(coreOpts);
   const [ovCore, optCore, ovGame, optGame] = cardOverride;
   for (const t of [optCore, optGame]) for (const [k, v] of parseCfg(t)) opts.set(k, v);
+  for (const k of [...opts.keys()]) if (CORE_OPT_BLOCK.test(k)) opts.delete(k);
   FS.writeFile(CORE_OPTS, [...opts].map(([k, v]) => `${k} = "${v}"`).join("\n") + "\n");
   let cfg = RETROARCH_CFG;
   const applied = [];

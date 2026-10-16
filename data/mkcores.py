@@ -23,6 +23,10 @@ WEB_ALT = {
     "pico-8": ("retro8", "o dArkOS usa o PICO-8 oficial/fake08 (fora do RetroArch); Retro8 é compatibilidade parcial"),
     "atari7800": (None, "prosystem não existe no pacote web"),
 }
+# sistemas cujo núcleo web existe mas não roda o conteúdo (testado): ficam como "sem núcleo web"
+WEB_BROKEN = {
+    "sega32x": "picodrive web aborta ao carregar 32X (RuntimeError: unreachable; nightlies 2026-10-03 e 2026-10-15)",
+}
 # BIOS que cada núcleo procura no system_directory (/roms/bios no dArkOS). required = não abre sem.
 BIOS = {
     "pcsx_rearmed": [("scph1001.bin", False), ("scph5501.bin", False), ("scph7001.bin", False), ("scph101.bin", False)],
@@ -127,6 +131,8 @@ def main(cfg, manifest_path, out_json, out_md):
             chosen, note = WEB_ALT[folder]
             if chosen:
                 allowed = [chosen]
+        if folder in WEB_BROKEN:
+            chosen, allowed, note = None, [], WEB_BROKEN[folder]
         darkos = f"{emu}/{dcore}" if dcore else (emu or "comando próprio")
         if not chosen and not note:
             note = "sem núcleo libretro no dArkOS" if not order else "nenhum dos núcleos (" + ", ".join(dict.fromkeys(order)) + ") existe na web"
@@ -152,10 +158,13 @@ def main(cfg, manifest_path, out_json, out_md):
     os.makedirs(os.path.dirname(out_json), exist_ok=True)
     json.dump({"systems": systems, "biosAliases": aliases}, open(out_json, "w"), ensure_ascii=False, indent=1)
     play = [r for r in rows if r[4]]
+    vis = [v for v in systems.values() if not v["hidden"]]
+    vplay = [v for v in vis if v["core"]]
     lines = ["# Sistemas do cartão x núcleos web", "",
              "Gerado por `data/mkcores.py` (não editar à mão). Jogos = ROMs que o ES lista (extensões do `es_systems.cfg`).",
              f"Núcleos web: RetroArch emscripten do buildbot ({len(web)} núcleos, `data/web-cores.txt`).", "",
-             f"**{len(play)} de {len(rows)} sistemas jogáveis no navegador — {sum(r[2] for r in play)} de {sum(r[2] for r in rows)} jogos.**", "",
+             f"**{len(play)} de {len(rows)} sistemas jogáveis no navegador — {sum(r[2] for r in play)} de {sum(r[2] for r in rows)} jogos.** "
+             f"Visíveis no ES (sem os do HiddenSystems): {len(vplay)} de {len(vis)} sistemas, {sum(v['games'] for v in vplay)} de {sum(v['games'] for v in vis)} jogos.", "",
              "| Sistema | Pasta | Jogos | dArkOS (emulador/núcleo) | Núcleo web | Observação |", "|---|---|---:|---|---|---|"]
     for full, folder, n, darkos, chosen, note, b in sorted(rows, key=lambda r: (-(r[4] is not None), -r[2])):
         bnote = "; ".join(f"BIOS {x['file']}: " + (f"do cartão ({x['from']})" if x.get("from") else "presente" if x["present"] else "ausente")

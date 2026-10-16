@@ -28,10 +28,23 @@ export async function bootFS(Module) {
     lazy.delete(key);
     const r = await fetch(url);
     if (!r.ok) { console.warn("[r36s] lazy falhou", key, r.status); return 0; }
-    const data = new Uint8Array(await r.arrayBuffer());
+    let data = new Uint8Array(await r.arrayBuffer());
+    if (isWebP(data)) data = await webpToPng(data, key);
     FS.writeFile(key, data);
     stats.fetched++; stats.bytes += data.length;
     return 1;
   };
   return { files: Object.keys(manifest.files).length, lazy: lazy.size, stats, manifest };   // manifest: o player usa (pastas, BIOS)
+}
+
+// capas WebP com extensão .png (scraper): o FreeImage do aparelho lê, o stb_image do ES web não -> o navegador converte
+const isWebP = d => d.length > 12 && d[0] === 0x52 && d[1] === 0x49 && d[2] === 0x46 && d[3] === 0x46 && d[8] === 0x57 && d[9] === 0x45 && d[10] === 0x42 && d[11] === 0x50;
+async function webpToPng(data, path) {
+  try {
+    const bmp = await createImageBitmap(new Blob([data], { type: "image/webp" }));
+    const c = new OffscreenCanvas(bmp.width, bmp.height);
+    c.getContext("2d").drawImage(bmp, 0, 0);
+    bmp.close();
+    return new Uint8Array(await (await c.convertToBlob({ type: "image/png" })).arrayBuffer());
+  } catch (e) { console.warn("[r36s] WebP não convertido", path, e); return data; }
 }

@@ -3,7 +3,7 @@
 Gerado por `data/mkcores.py` (não editar à mão). Jogos = ROMs que o ES lista (extensões do `es_systems.cfg`).
 Núcleos web: RetroArch emscripten do buildbot (98 núcleos, `data/web-cores.txt`).
 
-**22 de 30 sistemas jogáveis no navegador — 6769 de 7421 jogos.**
+**21 de 30 sistemas jogáveis no navegador — 6736 de 7421 jogos.** Visíveis no ES (sem os do HiddenSystems): 19 de 27 sistemas, 6733 de 7417 jogos.
 
 | Sistema | Pasta | Jogos | dArkOS (emulador/núcleo) | Núcleo web | Observação |
 |---|---|---:|---|---|---|
@@ -22,7 +22,6 @@ Núcleos web: RetroArch emscripten do buildbot (98 núcleos, `data/web-cores.txt
 | Atari Lynx | atarilynx | 88 | retroarch32/handy | handy |  |
 | PlayStation | psx | 52 | retroarch32/pcsx_rearmed_rumble | pcsx_rearmed | pcsx_rearmed_rumble não existe na web; BIOS scph1001.bin: do cartão (scph10011.bin) |
 | Capcom System II | cps2 | 36 | retroarch/fbneo | fbneo |  |
-| Sega 32X | sega32x | 33 | retroarch/picodrive | picodrive |  |
 | Capcom System I | cps1 | 28 | retroarch/fbneo | fbneo |  |
 | PICO-8 | pico-8 | 7 | float-scaled | retro8 | o dArkOS usa o PICO-8 oficial/fake08 (fora do RetroArch); Retro8 é compatibilidade parcial |
 | Capcom System III | cps3 | 6 | retroarch/fbneo | fbneo |  |
@@ -32,6 +31,7 @@ Núcleos web: RetroArch emscripten do buildbot (98 núcleos, `data/web-cores.txt
 | N64 | n64 | 411 | retroarch32/parallel_n64 | — sem núcleo web | nenhum dos núcleos (parallel_n64, mupen64plus_next, mupen64plus) existe na web |
 | NDS | nds | 126 | advanceddrastic | — sem núcleo web | sem núcleo libretro no dArkOS |
 | Atari 7800 | atari7800 | 67 | retroarch/prosystem | — sem núcleo web | prosystem não existe no pacote web |
+| Sega 32X | sega32x | 33 | retroarch/picodrive | — sem núcleo web | picodrive web aborta ao carregar 32X (RuntimeError: unreachable; nightlies 2026-10-03 e 2026-10-15) |
 | Ports | ports | 17 | comando próprio | — sem núcleo web | sem núcleo libretro no dArkOS |
 | EasyRPG | easyrpg | 15 | comando próprio | — sem núcleo web | sem núcleo libretro no dArkOS |
 | PlayStation Portable | psp | 9 | standalone | — sem núcleo web | sem núcleo libretro no dArkOS |

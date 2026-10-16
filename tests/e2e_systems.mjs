@@ -9,7 +9,7 @@ import { chromium } from "/home/andre/Workspace/web-ports/tools/pw/node_modules/
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 const url = process.argv[2] || "http://localhost:8770/r36s/";
 const out = process.argv[3] || "/home/andre/Workspace/web-ports/r36s/tests/out";
-const SAMPLE = "snes,nes,gb,gbc,gba,megadrive,mastersystem,pcengine,psx,n64,neogeo,atarilynx,atari2600,cps1";
+const SAMPLE = "snes,nes,gb,gbc,gba,megadrive,mastersystem,pcengine,psx,n64,neogeo,atarilynx,atari2600,cps1,mame,gamegear,pico-8,sega32x";
 const want = (process.argv[4] ?? SAMPLE).split(",").filter(Boolean);
 mkdirSync(out, { recursive: true });
 const cores = JSON.parse(readFileSync(new URL("../web/data/cores.json", import.meta.url)));
@@ -89,7 +89,8 @@ for (const system of want) {
     r.loadMs = Date.now() - t0;
     r.firstLit = firstLit;
     await page.waitForTimeout(6000);
-    for (const k of ["Enter", "Enter"]) { await tap(k, 200); await page.waitForTimeout(1500); }   // passa a abertura
+    r.contentLit = await waitLit(f, 0.08, 40000);   // telas pretas/carregando no começo (CPS, PS1): espera conteúdo
+    for (const k of ["Enter", "Enter"]) { await tap(k, 200); await page.waitForTimeout(2000); }   // passa a abertura
     r.fps = await fpsOf(f);
     r.lit = await lit(f);
     r.lazy = await f.evaluate(() => window.r36sPlay.lazy).catch(() => null);
