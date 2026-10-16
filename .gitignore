@@ -6,3 +6,5 @@ card-sample/
 web/data/
 web/fs
 __pycache__/
+build/es-out/
+build/rapidjson/
