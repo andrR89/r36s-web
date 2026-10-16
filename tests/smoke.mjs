@@ -40,16 +40,16 @@ for (let i = 0; i < 120 && visibleMs === null; i++) {
 await page.waitForTimeout(5000);
 await page.screenshot({ path: `${out}/1-sistemas.png` });
 const lit1 = await litNow();
-await page.keyboard.press("Enter");          // entra no sistema (A = Enter no mapeamento padrão do ES)
+await page.keyboard.press("k");              // entra no sistema (A = K no layout WASD+JKUI)
 await page.waitForTimeout(3000);
 await page.screenshot({ path: `${out}/2-jogos.png` });
 const lit2 = await litNow();
-await page.keyboard.press("ArrowDown"); await page.waitForTimeout(300);
-await page.keyboard.press("ArrowDown");
+await page.keyboard.press("s"); await page.waitForTimeout(300);
+await page.keyboard.press("s");
 await page.waitForTimeout(2000);
 await page.screenshot({ path: `${out}/3-jogo-selecionado.png` });
 const lit = await litNow();
-await page.keyboard.press("ArrowDown");      // 4ª posição tem capa: prova a busca sob demanda ao mover
+await page.keyboard.press("s");      // 4ª posição tem capa: prova a busca sob demanda ao mover
 await page.waitForTimeout(2000);
 await page.screenshot({ path: `${out}/4-jogo-com-capa.png` });
 const fs = await page.evaluate(() => window.r36s?.fs?.stats);

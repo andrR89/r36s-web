@@ -45,16 +45,16 @@ const lit = frame => frame.evaluate(() => {
   return +(n / (d.length / 4)).toFixed(3);
 });
 const hold = async (k, ms = 200) => { await page.keyboard.down(k); await page.waitForTimeout(ms); await page.keyboard.up(k); };
-const selectStart = async () => {   // Select (F2) segurado + Start (F1) = sair, como no aparelho
-  await page.keyboard.down("F2"); await page.waitForTimeout(300);
-  await page.keyboard.down("F1"); await page.waitForTimeout(400);
-  await page.keyboard.up("F1"); await page.keyboard.up("F2");
+const selectStart = async () => {   // Select (Backspace) segurado + Start (Enter) = sair, como no aparelho
+  await page.keyboard.down("Backspace"); await page.waitForTimeout(300);
+  await page.keyboard.down("Enter"); await page.waitForTimeout(400);
+  await page.keyboard.up("Enter"); await page.keyboard.up("Backspace");
 };
 const waitLit = async (frame, min, ms) => { const t = Date.now(); let v = 0; while (Date.now() - t < ms) { v = await lit(frame); if (v > min) return v; await page.waitForTimeout(500); } return v; };
 const gameFrame = () => page.frames().find(f => /retroarch\/play\.html/.test(f.url()));
 
 async function launchSelected(expect) {
-  await hold("Enter");
+  await hold("k");                   // A
   await page.waitForFunction(() => window.r36s.game, null, { timeout: 15000 });
   const rom = await page.evaluate(() => window.r36s.game.rom);
   if (!rom.includes(expect)) return { rom, wrong: true };
@@ -77,11 +77,11 @@ await page.goto(url);
 await page.waitForFunction(() => window.r36s?.ready, null, { timeout: 120000 });
 if (await waitLit(page, 0.05, 30000) <= 0.05) await fail("ES não apareceu");
 await page.waitForTimeout(4000);
-await hold("Enter");                       // entra no SNES (sem clicar antes: testa o foco)
+await hold("k");                           // A: entra no SNES (sem clicar antes: testa o foco)
 await page.waitForTimeout(3000);
 // DK2 é o penúltimo da lista: subir do primeiro dá a volta para o último (DK3), mais um sobe para o DK2
-await hold("ArrowUp"); await page.waitForTimeout(400);
-await hold("ArrowUp"); await page.waitForTimeout(1500);
+await hold("w"); await page.waitForTimeout(400);
+await hold("w"); await page.waitForTimeout(1500);
 await page.screenshot({ path: `${out}/e2e-1-lista-dk2.png` });
 
 // --- 2. DK2 no RetroArch
@@ -96,7 +96,7 @@ step("dk2_lit", gameLit);
 if (gameLit <= 0.02) await fail("tela do jogo preta");
 // abertura da tradução (~30 s) e então Start algumas vezes: logos -> título -> tela de arquivos
 await page.waitForTimeout(20000);
-for (const k of ["F1", "F1", "F1", "ArrowRight", "ArrowLeft", "F1"]) { await hold(k, 250); await page.waitForTimeout(3000); }
+for (const k of ["Enter", "Enter", "Enter", "d", "a", "Enter"]) { await hold(k, 250); await page.waitForTimeout(3000); }
 await page.screenshot({ path: `${out}/e2e-3-dk2-teclas.png` });
 step("dk2_lit_after_keys", f1 ? await lit(f1) : 0);
 
@@ -117,7 +117,7 @@ step("dk3_save_unchanged", { equal: after.equals(before), md5: md5(after) });
 if (!after.equals(before)) await fail("save do DK3 mudou sem ter sido jogado");
 
 // --- 5. DK3: o save semeado aparece na tela de arquivos
-await hold("ArrowDown"); await page.waitForTimeout(1500);   // DK2 -> DK3 (o ES lembra a posição)
+await hold("s"); await page.waitForTimeout(1500);   // DK2 -> DK3 (o ES lembra a posição)
 await page.screenshot({ path: `${out}/e2e-5-lista-dk3.png` });
 const l2 = await launchSelected(DK3);
 step("launch_dk3", l2);
@@ -138,7 +138,7 @@ for (let t = Date.now(); Date.now() - t < 120000 && !title;) { if (await blue(f2
 step("dk3_title_seen", title);
 await page.waitForTimeout(1500);
 await page.screenshot({ path: `${out}/e2e-6a-dk3-titulo.png` });
-await hold("F1", 250); await page.waitForTimeout(5000);
+await hold("Enter", 250); await page.waitForTimeout(5000);
 await page.screenshot({ path: `${out}/e2e-6-dk3-arquivos.png` });
 step("dk3_lit", await lit(f2));
 const g2 = await exitGame();

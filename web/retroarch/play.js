@@ -51,27 +51,27 @@ savestate_auto_save = "false"
 savestate_auto_load = "false"
 input_autodetect_enable = "true"
 input_quit_gamepad_combo = "4"
-input_player1_up = "up"
-input_player1_down = "down"
-input_player1_left = "left"
-input_player1_right = "right"
-input_player1_a = "enter"
-input_player1_b = "escape"
-input_player1_x = "s"
-input_player1_y = "a"
+input_player1_up = "w"
+input_player1_down = "s"
+input_player1_left = "a"
+input_player1_right = "d"
+input_player1_a = "k"
+input_player1_b = "j"
+input_player1_x = "i"
+input_player1_y = "u"
 input_player1_l = "q"
-input_player1_r = "w"
+input_player1_r = "e"
 input_player1_l2 = "nul"
 input_player1_r2 = "nul"
 input_player1_l3 = "nul"
 input_player1_r3 = "nul"
-input_player1_start = "f1"
-input_player1_select = "f2"
-input_enable_hotkey = "f2"
-input_exit_emulator = "f1"
-input_save_state = "escape"
-input_load_state = "enter"
-input_menu_toggle = "f3"
+input_player1_start = "enter"
+input_player1_select = "backspace"
+input_enable_hotkey = "nul"
+input_exit_emulator = "f12"
+input_save_state = "f5"
+input_load_state = "f7"
+input_menu_toggle = "escape"
 input_state_slot_increase = "nul"
 input_state_slot_decrease = "nul"
 input_toggle_fast_forward = "nul"
@@ -292,8 +292,27 @@ async function main() {
   Module.callMain(["-v", "-c", CFG, contentPath]);
 }
 
+// layout WASD+JKUI: Select+Start (Backspace+Enter) sai do jogo. O RetroArch só faz atalho de 2 teclas
+// com "hotkey enable", que obrigaria segurar Select também no Esc (menu); então a combinação é detectada
+// aqui e vira um F12 sintético (input_exit_emulator = f12, sem hotkey).
+const held = new Set();
+function sendKey(type, key) {
+  canvas.dispatchEvent(new KeyboardEvent(type, { key, code: key, keyCode: 123, which: 123, bubbles: true, cancelable: true }));
+}
+addEventListener("keydown", e => {
+  if (!e.isTrusted) return;
+  held.add(e.code);
+  if (held.has("Backspace") && held.has("Enter")) {
+    held.clear();
+    sendKey("keydown", "F12");
+    setTimeout(() => sendKey("keyup", "F12"), 120);
+  }
+}, true);
+addEventListener("keyup", e => { if (e.isTrusted) held.delete(e.code); }, true);
+addEventListener("blur", () => held.clear());
+
 // teclas que o navegador usaria (F1 ajuda, F3 busca, setas rolando, Esc) ficam com o jogo
-const BLOCK = new Set(["F1", "F2", "F3", "F4", "F6", "F7", "Tab", "Escape", "Enter", " ", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Backspace"]);
+const BLOCK = new Set(["F1", "F2", "F3", "F4", "F6", "F7", "F5", "F12", "Tab", "Escape", "Enter", " ", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Backspace"]);
 addEventListener("keydown", e => { if (BLOCK.has(e.key)) e.preventDefault(); }, true);
 addEventListener("pointerdown", () => canvas.focus());
 // aba/janela fechando com o jogo aberto: última tentativa de subir o save
