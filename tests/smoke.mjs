@@ -40,7 +40,7 @@ for (let i = 0; i < 120 && visibleMs === null; i++) {
 await page.waitForTimeout(5000);
 await page.screenshot({ path: `${out}/1-sistemas.png` });
 const lit1 = await litNow();
-await page.keyboard.press("k");              // entra no sistema (A = K no layout WASD+JKUI)
+await page.keyboard.press("l");              // entra no sistema (A = L no layout WASD+JKUI)
 await page.waitForTimeout(3000);
 await page.screenshot({ path: `${out}/2-jogos.png` });
 const lit2 = await litNow();

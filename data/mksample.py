@@ -35,7 +35,7 @@ ES_SETTINGS = """<?xml version="1.0"?>
 </config>
 """
 
-# teclado WASD+JKUI (escolha do andre): WASD direcional, K=A J=B I=X U=Y, Q/E página, Enter=Start, Backspace=Select (sem este arquivo o ES abre o
+# teclado WASD+JKUI (escolha do andre): WASD direcional, L=A K=B J=Y I=X, U/O = L/R (página no ES), Enter=Start, Backspace=Select (sem este arquivo o ES abre o
 # GuiDetectDevice "segure um botão para configurar" em vez do carrossel)
 ES_INPUT = """<?xml version="1.0"?>
 <inputList>
@@ -44,14 +44,14 @@ ES_INPUT = """<?xml version="1.0"?>
     <input name="down" type="key" id="115" value="1" />
     <input name="left" type="key" id="97" value="1" />
     <input name="right" type="key" id="100" value="1" />
-    <input name="a" type="key" id="107" value="1" />
-    <input name="b" type="key" id="106" value="1" />
+    <input name="a" type="key" id="108" value="1" />
+    <input name="b" type="key" id="107" value="1" />
     <input name="x" type="key" id="105" value="1" />
-    <input name="y" type="key" id="117" value="1" />
+    <input name="y" type="key" id="106" value="1" />
     <input name="start" type="key" id="13" value="1" />
     <input name="select" type="key" id="8" value="1" />
-    <input name="pageup" type="key" id="113" value="1" />
-    <input name="pagedown" type="key" id="101" value="1" />
+    <input name="pageup" type="key" id="117" value="1" />
+    <input name="pagedown" type="key" id="111" value="1" />
   </inputConfig>
 </inputList>
 """

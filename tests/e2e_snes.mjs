@@ -54,7 +54,7 @@ const waitLit = async (frame, min, ms) => { const t = Date.now(); let v = 0; whi
 const gameFrame = () => page.frames().find(f => /retroarch\/play\.html/.test(f.url()));
 
 async function launchSelected(expect) {
-  await hold("k");                   // A
+  await hold("l");                   // A
   await page.waitForFunction(() => window.r36s.game, null, { timeout: 15000 });
   const rom = await page.evaluate(() => window.r36s.game.rom);
   if (!rom.includes(expect)) return { rom, wrong: true };
@@ -77,7 +77,7 @@ await page.goto(url);
 await page.waitForFunction(() => window.r36s?.ready, null, { timeout: 120000 });
 if (await waitLit(page, 0.05, 30000) <= 0.05) await fail("ES não apareceu");
 await page.waitForTimeout(4000);
-await hold("k");                           // A: entra no SNES (sem clicar antes: testa o foco)
+await hold("l");                           // A: entra no SNES (sem clicar antes: testa o foco)
 await page.waitForTimeout(3000);
 // DK2 é o penúltimo da lista: subir do primeiro dá a volta para o último (DK3), mais um sobe para o DK2
 await hold("w"); await page.waitForTimeout(400);
