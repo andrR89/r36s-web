@@ -12,3 +12,5 @@ web/emulationstation.js
 web/emulationstation.wasm
 tests/out/
 build/retroarch-dl/
+web/retroarch/*_libretro.js
+web/retroarch/*_libretro.wasm
