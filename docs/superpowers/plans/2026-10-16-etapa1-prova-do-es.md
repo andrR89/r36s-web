@@ -151,7 +151,7 @@ git add .gitignore data/mksample.py && git commit -m "data: amostra do cartão p
 Formato (contrato usado pelo `fsboot.js` na Task 6):
 - `manifest.json`: `{"dirs": ["/roms", ...], "files": {"/roms/snes/x.7z": {"size": 0, "kind": "empty"}, "/roms/themes/.../theme.xml": {"size": 1234, "kind": "eager", "off": 0}, "/roms/snes/images/x.png": {"size": 5678, "kind": "lazy", "url": "fs/roms/snes/images/x.png"}}, "symlinks": {"/etc/emulationstation/themes": "/roms/themes"}}`
 - `eager.bin`: concatenação dos arquivos `eager`, cada um em `off`..`off+size`.
-- Regras de classificação: tamanho 0 → `empty`; está sob `/roms/themes/`, sob `/home/`, ou se chama `gamelist.xml` → `eager`; ROM (extensão de ROM) → `empty` (tamanho no manifesto = tamanho real, conteúdo nunca servido); resto → `lazy`.
+- Regras de classificação: tamanho 0 → `empty`; sob `/roms/themes/`: `.xml/.ttf/.otf/.svg` → `eager`, resto (imagens, áudio) → `lazy`; sob `/home/`, ou se chama `gamelist.xml` → `eager`; ROM (extensão de ROM) → `empty` (tamanho no manifesto = tamanho real, conteúdo nunca servido); resto → `lazy`.
 
 - [ ] **Step 1: Escrever o teste que falha**
 
@@ -454,6 +454,7 @@ EM_ASYNC_JS(int, web_fetch_lazy, (const char* path), {
 #endif
 ```
 (o `EM_ASYNC_JS` vai no escopo de arquivo, acima da função). `Module.fetchLazy` é implementado no `fsboot.js` (Task 7).
+Imagens e áudio do tema também são lazy, e o áudio **não** passa pelo ResourceManager: chamar `web_fetch_lazy(path)` também antes de `Mix_LoadWAV` (`es-core/src/Sound.cpp:66`) e de `Mix_LoadMUS` (`es-core/src/AudioManager.cpp:209`). Declarar `web_fetch_lazy` uma vez (ex.: em `es-core/src/WebFetch.h` com `extern "C"`, definido num `WebFetch.cpp` adicionado às fontes do es-core só com `WEB`) e incluir nos três lugares.
 
 - [ ] **Step 5: Lançamento.** Em `platform.cpp:90`, `runSystemCommand`, sob `#ifdef _WEB_` no início da função:
 

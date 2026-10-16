@@ -16,6 +16,8 @@ class T(unittest.TestCase):
         touch(self.src, "/roms/snes/gamelist.xml", b"<gameList/>")
         touch(self.src, "/roms/snes/Jogo (USA).7z", b"ROMDATA")
         touch(self.src, "/roms/snes/images/Jogo (USA).png", b"PNG")
+        touch(self.src, "/roms/themes/t/snes/fundo.jpg", b"JPGDATA")
+        touch(self.src, "/roms/themes/t/bgm.mp3", b"MP3DATA")
         mkmanifest.build(self.src, self.out)
         self.m = json.load(open(os.path.join(self.out, "manifest.json")))
         self.blob = open(os.path.join(self.out, "eager.bin"), "rb").read()
@@ -38,6 +40,11 @@ class T(unittest.TestCase):
         self.assertEqual(f["kind"], "lazy")
         self.assertEqual(f["size"], 3)
         self.assertEqual(f["url"], "fs/roms/snes/images/Jogo%20%28USA%29.png")
+
+    def test_theme_media_is_lazy(self):
+        for path in ["/roms/themes/t/snes/fundo.jpg", "/roms/themes/t/bgm.mp3"]:
+            self.assertEqual(self.m["files"][path]["kind"], "lazy")
+        self.assertNotIn(b"JPGDATA", self.blob)
 
     def test_dirs_and_symlink(self):
         self.assertIn("/roms/snes/images", self.m["dirs"])

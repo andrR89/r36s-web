@@ -6,12 +6,16 @@ ROM_EXT = {".7z", ".zip", ".sfc", ".smc", ".nes", ".gb", ".gbc", ".gba", ".md", 
            ".cue", ".chd", ".iso", ".pbp", ".n64", ".z64", ".v64", ".nds", ".pce", ".sms", ".gg",
            ".a26", ".a78", ".lnx", ".32x", ".cdi", ".gdi", ".p8", ".png8"}
 SYMLINKS = {"/etc/emulationstation/themes": "/roms/themes"}
+# do tema só vai no pacote inicial o que o ES lê ao carregar (xml, fontes, svg); imagens e áudio (~200 MB) são sob demanda
+THEME_EAGER_EXT = {".xml", ".ttf", ".otf", ".svg"}
 
 def classify(vpath, size):
     name = os.path.basename(vpath)
     if size == 0:
         return "empty"
-    if vpath.startswith("/roms/themes/") or vpath.startswith("/home/") or name == "gamelist.xml":
+    if vpath.startswith("/roms/themes/"):
+        return "eager" if os.path.splitext(name)[1].lower() in THEME_EAGER_EXT else "lazy"
+    if vpath.startswith("/home/") or name == "gamelist.xml":
         return "eager"
     if os.path.splitext(name)[1].lower() in ROM_EXT:
         return "empty"

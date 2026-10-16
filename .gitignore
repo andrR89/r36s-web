@@ -5,3 +5,4 @@ src/
 card-sample/
 web/data/
 web/fs
+__pycache__/
