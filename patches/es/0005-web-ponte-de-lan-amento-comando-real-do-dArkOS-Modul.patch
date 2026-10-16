@@ -1,0 +1,103 @@
+From ae3f5a3e26128c8fc5651a44a715bd2d2462ee7c Mon Sep 17 00:00:00 2001
+From: andrR89 <3686269+andrR89@users.noreply.github.com>
+Date: Fri, 16 Oct 2026 17:03:43 -0300
+Subject: [PATCH 5/5] =?UTF-8?q?web:=20ponte=20de=20lan=C3=A7amento=20(coma?=
+ =?UTF-8?q?ndo=20real=20do=20dArkOS=20->=20Module.webLaunch,=20asyncify),?=
+ =?UTF-8?q?=20limpa=20eventos=20SDL=20na=20volta?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ es-core/src/platform.cpp | 71 +++++++++++++++++++++++++++++++++++-----
+ 1 file changed, 63 insertions(+), 8 deletions(-)
+
+diff --git a/es-core/src/platform.cpp b/es-core/src/platform.cpp
+index e90f6c2..cb9f26a 100644
+--- a/es-core/src/platform.cpp
++++ b/es-core/src/platform.cpp
+@@ -90,18 +90,73 @@ BOOL CALLBACK MonitorEnumProc(HMONITOR hMonitor, HDC hdcMonitor, LPRECT lprcMoni
+ }
+ #endif
+ 
++#ifdef _WEB_
++// Ponte para o RetroArch web (web/bridge.js): mostra o jogo num iframe e só resolve quando ele sai.
++// O ES fica suspenso aqui (ASYNCIFY) durante o jogo. Retorna o código de saída (0 = ok).
++EM_ASYNC_JS(int, web_launch_js, (const char* system, const char* core, const char* rom), {
++	if (!Module.webLaunch) { console.warn("[r36s] Module.webLaunch ausente"); return 1; }
++	try { return (await Module.webLaunch({ system: UTF8ToString(system), core: UTF8ToString(core), rom: UTF8ToString(rom) })) | 0; }
++	catch (e) { console.warn("[r36s] webLaunch", e); return 1; }
++});
++
++// desfaz o escape de shell do getEscapedPath ("2020\ Super\ Baseball\ \(USA\).7z")
++static std::string webShellUnescape(const std::string& s)
++{
++	std::string out;
++	for (size_t i = 0; i < s.size(); i++)
++	{
++		if (s[i] == '\\' && i + 1 < s.size()) i++;
++		out += s[i];
++	}
++	return out;
++}
++
++// Comando real do dArkOS:
++//   sudo perfmax <gov> <rom>; nice -n -19 /usr/local/bin/<emu> -L /home/ark/.config/<emu>/cores/<core>_libretro.so <rom>; sudo perfnorm
++// -> núcleo = <core>, ROM = argumento depois do .so (até o "; "), sistema = pasta em /roms/<sistema>/
++static bool webParseLaunch(const std::string& cmd, std::string& system, std::string& core, std::string& rom)
++{
++	if (cmd.rfind("web-launch ", 0) == 0)   // forma antiga da amostra: web-launch <sistema> <nucleo> <rom>
++	{
++		size_t a = cmd.find(' ', 11), b = a == std::string::npos ? a : cmd.find(' ', a + 1);
++		if (b == std::string::npos) return false;
++		system = cmd.substr(11, a - 11); core = cmd.substr(a + 1, b - a - 1); rom = webShellUnescape(cmd.substr(b + 1));
++		return true;
++	}
++	size_t so = cmd.find("_libretro.so ");
++	size_t cores = so == std::string::npos ? so : cmd.rfind("/cores/", so);
++	if (cores == std::string::npos) return false;
++	core = cmd.substr(cores + 7, so - cores - 7);
++	size_t start = so + 13, end = start;
++	while (end < cmd.size() && !(cmd[end] == ';' && (end == 0 || cmd[end - 1] != '\\'))) end++;   // ';' sem escape
++	std::string raw = cmd.substr(start, end - start);
++	while (!raw.empty() && raw.back() == ' ' && (raw.size() < 2 || raw[raw.size() - 2] != '\\')) raw.pop_back();
++	rom = webShellUnescape(raw);
++	if (rom.rfind("/roms/", 0) != 0) return false;
++	size_t slash = rom.find('/', 6);
++	if (slash == std::string::npos) return false;
++	system = rom.substr(6, slash - 6);
++	return !core.empty() && !system.empty();
++}
++#endif
++
+ int runSystemCommand(const std::string& cmd_utf8, const std::string& name, Window* window)
+ {
+ #ifdef _WEB_
+-	// "web-launch <sistema> <nucleo> <rom>" -> ponte JS (Etapa 3). Outros comandos (scripts do dArkOS) são ignorados.
++	// comando de lançamento -> ponte JS (web/bridge.js). Outros comandos (scripts do dArkOS) são ignorados.
+ 	LOG(LogInfo) << "runSystemCommand (web): " << cmd_utf8;
+-	if (cmd_utf8.rfind("web-launch ", 0) == 0)
+-	{
+-		if (window != NULL)
+-			window->renderGameLoadingScreen();
+-		return EM_ASM_INT({ return Module.webLaunch ? 0 : 1; });
+-	}
+-	return 0;
++	std::string sysName, core, rom;
++	if (!webParseLaunch(cmd_utf8, sysName, core, rom))
++		return 0;
++	LOG(LogInfo) << "web launch: system=" << sysName << " core=" << core << " rom=" << rom;
++	if (window != NULL)
++		window->renderGameLoadingScreen();
++	int code = web_launch_js(sysName.c_str(), core.c_str(), rom.c_str());
++	// teclas apertadas durante/na saída do jogo não podem virar ações no ES
++	SDL_PumpEvents();
++	SDL_FlushEvents(SDL_FIRSTEVENT, SDL_LASTEVENT);
++	LOG(LogInfo) << "web launch: saiu com " << code;
++	return code;
+ #endif
+ #ifdef WIN32
+ 
+-- 
+2.56.0
+

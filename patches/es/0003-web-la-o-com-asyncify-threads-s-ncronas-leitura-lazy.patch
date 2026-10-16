@@ -1,7 +1,7 @@
 From a5761476de819547493089343253e4963deefc6a Mon Sep 17 00:00:00 2001
 From: andrR89 <3686269+andrR89@users.noreply.github.com>
 Date: Fri, 16 Oct 2026 15:56:41 -0300
-Subject: [PATCH 3/4] =?UTF-8?q?web:=20la=C3=A7o=20com=20asyncify,=20thread?=
+Subject: [PATCH 3/5] =?UTF-8?q?web:=20la=C3=A7o=20com=20asyncify,=20thread?=
  =?UTF-8?q?s=20s=C3=ADncronas,=20leitura=20lazy=20e=20lan=C3=A7amento?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8

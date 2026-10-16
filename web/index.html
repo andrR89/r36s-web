@@ -7,6 +7,7 @@
 <style>
   html,body{margin:0;height:100%;background:#000;overflow:hidden}
   #canvas{display:block;margin:auto;height:100% !important;width:auto !important;aspect-ratio:4/3;max-width:100%;image-rendering:auto;outline:none}
+  #game{position:fixed;inset:0;width:100%;height:100%;border:0;background:#000;z-index:10}
   #status{position:fixed;left:8px;bottom:8px;color:#888;font:12px system-ui}
 </style>
 <!-- id "canvas": o port SDL2 registra os handlers em #canvas -->
@@ -15,10 +16,12 @@
 <script type="module">
   import createES from "./emulationstation.js";
   import { bootFS } from "./fsboot.js";
+  import { installBridge, keepFocus } from "./bridge.js";
   const t0 = performance.now();
   const status = document.getElementById("status");
   const canvas = document.getElementById("canvas");
   window.r36s = { ready: false, t0 };
+  keepFocus(canvas);   // antes de tudo: a primeira tecla não se perde mesmo sem clicar
   const Module = await createES({
     canvas,
     thisProgram: "/usr/bin/emulationstation/emulationstation",   // ES acha resources/ ao lado do executável
@@ -30,6 +33,7 @@
   status.textContent = `${info.files} arquivos (${info.lazy} sob demanda)`;
   Module.ENV.HOME = "/home/ark";
   Object.assign(window.r36s, { Module, fs: info });
+  installBridge(Module, canvas);   // Module.webLaunch: jogo no RetroArch (iframe retroarch/play.html)
   canvas.focus();
   // resolução do R36S (640x480) vem do shim de display (es-core/src/web/go2_web.cpp)
   Module.callMain(["--home", "/home/ark"]);

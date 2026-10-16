@@ -1,7 +1,7 @@
 From e0bd3eb43b288b1f13955ea25e9970e8ba796f97 Mon Sep 17 00:00:00 2001
 From: andrR89 <3686269+andrR89@users.noreply.github.com>
 Date: Fri, 16 Oct 2026 15:55:04 -0300
-Subject: [PATCH 2/4] web: stb_image no lugar de FreeImage; stubs de
+Subject: [PATCH 2/5] web: stb_image no lugar de FreeImage; stubs de
  curl/vlc/alsa; shim libgo2 sobre SDL2/WebGL
 
 ---
