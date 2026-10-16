@@ -30,6 +30,44 @@ ES_SETTINGS = """<?xml version="1.0"?>
 </config>
 """
 
+# teclado = mesmo mapeamento do InputManager::loadDefaultKBConfig (sem este arquivo o ES abre o
+# GuiDetectDevice "segure um botão para configurar" em vez do carrossel)
+ES_INPUT = """<?xml version="1.0"?>
+<inputList>
+  <inputConfig type="keyboard" deviceName="Keyboard" deviceGUID="-1">
+    <input name="up" type="key" id="1073741906" value="1" />
+    <input name="down" type="key" id="1073741905" value="1" />
+    <input name="left" type="key" id="1073741904" value="1" />
+    <input name="right" type="key" id="1073741903" value="1" />
+    <input name="a" type="key" id="13" value="1" />
+    <input name="b" type="key" id="27" value="1" />
+    <input name="start" type="key" id="1073741882" value="1" />
+    <input name="select" type="key" id="1073741883" value="1" />
+    <input name="pageup" type="key" id="93" value="1" />
+    <input name="pagedown" type="key" id="91" value="1" />
+  </inputConfig>
+</inputList>
+"""
+
+ES_RESOURCES = os.path.join(R, "src/es/resources")
+ES_BIN = "usr/bin/emulationstation"   # como no dArkOS: /usr/bin/emulationstation/{emulationstation,resources}
+
+def add_es_files(out):
+    """Arquivos do próprio ES (não dependem do external): es_input.cfg e resources/."""
+    # o fcamod do ArkOS lê o es_input.cfg de /etc/emulationstation (InputManager::getConfigPath)
+    etc = os.path.join(out, "etc/emulationstation")
+    os.makedirs(etc, exist_ok=True)
+    open(os.path.join(etc, "es_input.cfg"), "w").write(ES_INPUT)
+    stale = os.path.join(out, "home/ark/.emulationstation/es_input.cfg")
+    if os.path.exists(stale):
+        os.remove(stale)
+    dst = os.path.join(out, ES_BIN, "resources")
+    if os.path.exists(dst):
+        shutil.rmtree(dst)
+    shutil.copytree(ES_RESOURCES, dst)
+    # executável fictício: setExePath só usa o diretório de argv[0] se ele for um arquivo regular
+    open(os.path.join(out, ES_BIN, "emulationstation"), "wb").close()
+
 def esc(s):
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -64,7 +102,12 @@ def main():
             line += f"\t\t<image>./images/{esc(img)}</image>\n"
         entries.append(line + "\t</game>\n")
     open(os.path.join(snes, "gamelist.xml"), "w").write('<?xml version="1.0"?>\n<gameList>\n' + "".join(entries) + "</gameList>\n")
+    add_es_files(OUT)
     print(f"card-sample: {len(roms)} jogos snes, {sum(1 for e in entries if '<image>' in e)} com capa")
 
 if __name__ == "__main__":
-    main()
+    if "--es-only" in sys.argv:   # só atualiza os arquivos do ES numa amostra existente
+        add_es_files(OUT)
+        print("card-sample: es_input.cfg e resources/ atualizados")
+    else:
+        main()

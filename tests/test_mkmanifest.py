@@ -14,10 +14,13 @@ class T(unittest.TestCase):
         touch(self.src, "/roms/themes/t/theme.xml", b"<theme/>")
         touch(self.src, "/home/ark/.emulationstation/es_settings.cfg", b"<config/>")
         touch(self.src, "/roms/snes/gamelist.xml", b"<gameList/>")
+        touch(self.src, "/etc/emulationstation/es_input.cfg", b"<inputList/>")
         touch(self.src, "/roms/snes/Jogo (USA).7z", b"ROMDATA")
         touch(self.src, "/roms/snes/images/Jogo (USA).png", b"PNG")
         touch(self.src, "/roms/themes/t/snes/fundo.jpg", b"JPGDATA")
         touch(self.src, "/roms/themes/t/bgm.mp3", b"MP3DATA")
+        touch(self.src, "/usr/bin/emulationstation/resources/arrow.svg", b"<svg/>")
+        touch(self.src, "/usr/bin/emulationstation/resources/big.ttf", b"F" * (2 * 1024 * 1024))
         mkmanifest.build(self.src, self.out)
         self.m = json.load(open(os.path.join(self.out, "manifest.json")))
         self.blob = open(os.path.join(self.out, "eager.bin"), "rb").read()
@@ -25,7 +28,8 @@ class T(unittest.TestCase):
     def test_eager_files_are_in_blob(self):
         for path, data in [("/roms/themes/t/theme.xml", b"<theme/>"),
                            ("/home/ark/.emulationstation/es_settings.cfg", b"<config/>"),
-                           ("/roms/snes/gamelist.xml", b"<gameList/>")]:
+                           ("/roms/snes/gamelist.xml", b"<gameList/>"),
+                           ("/etc/emulationstation/es_input.cfg", b"<inputList/>")]:
             f = self.m["files"][path]
             self.assertEqual(f["kind"], "eager")
             self.assertEqual(self.blob[f["off"]:f["off"] + f["size"]], data)
@@ -49,6 +53,10 @@ class T(unittest.TestCase):
     def test_dirs_and_symlink(self):
         self.assertIn("/roms/snes/images", self.m["dirs"])
         self.assertEqual(self.m["symlinks"]["/etc/emulationstation/themes"], "/roms/themes")
+
+    def test_es_resources_eager_except_big_fonts(self):
+        self.assertEqual(self.m["files"]["/usr/bin/emulationstation/resources/arrow.svg"]["kind"], "eager")
+        self.assertEqual(self.m["files"]["/usr/bin/emulationstation/resources/big.ttf"]["kind"], "lazy")
 
 if __name__ == "__main__":
     unittest.main()

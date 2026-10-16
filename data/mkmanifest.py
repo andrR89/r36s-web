@@ -8,6 +8,8 @@ ROM_EXT = {".7z", ".zip", ".sfc", ".smc", ".nes", ".gb", ".gbc", ".gba", ".md", 
 SYMLINKS = {"/etc/emulationstation/themes": "/roms/themes"}
 # do tema só vai no pacote inicial o que o ES lê ao carregar (xml, fontes, svg); imagens e áudio (~200 MB) são sob demanda
 THEME_EAGER_EXT = {".xml", ".ttf", ".otf", ".svg"}
+# resources/ do ES: tudo eager (pugixml/ifstream leem direto), menos as fontes de fallback CJK grandes (lidas via ResourceManager)
+ES_LAZY_FONT_MIN = 1024 * 1024
 
 def classify(vpath, size):
     name = os.path.basename(vpath)
@@ -15,7 +17,10 @@ def classify(vpath, size):
         return "empty"
     if vpath.startswith("/roms/themes/"):
         return "eager" if os.path.splitext(name)[1].lower() in THEME_EAGER_EXT else "lazy"
-    if vpath.startswith("/home/") or name == "gamelist.xml":
+    if vpath.startswith("/usr/"):
+        big_font = os.path.splitext(name)[1].lower() in (".ttf", ".otf") and size >= ES_LAZY_FONT_MIN
+        return "lazy" if big_font else "eager"
+    if vpath.startswith("/home/") or vpath.startswith("/etc/") or name == "gamelist.xml":
         return "eager"
     if os.path.splitext(name)[1].lower() in ROM_EXT:
         return "empty"
