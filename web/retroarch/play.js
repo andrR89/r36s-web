@@ -32,6 +32,9 @@ window.r36sPlay = state;   // inspeção nos testes
 // teclado (layout do andre, igual no ES e em todos os sistemas): WASD = direcional, L=A K=B J=Y I=X U=L O=R, Enter=Start,
 // Backspace=Select, Backspace+Enter = sair (F12 sintético, abaixo), Esc = menu do RetroArch, F5/F7 = salvar/carregar estado.
 // Extras para núcleos que usam L2/R2 (PS1): Y = L2 (ao lado do U=L), P = R2 (ao lado do O=R).
+// Analógicos (N64 e afins), em teclas livres do layout: setas = analógico esquerdo (o direcional do N64);
+// T/F/G/H = analógico direito (cima/esquerda/baixo/direita), que o mupen64plus_next usa como botões C.
+// No N64 (mapa padrão do núcleo): A = K, B = J, Z = Y (L2), L = U, R = O, Start = Enter, direcional = WASD.
 // Overrides/remaps automáticos do RetroArch ficam desligados: os do cartão entram filtrados (sem teclado nem caminhos).
 const RETROARCH_CFG = `
 config_save_on_exit = "false"
@@ -75,6 +78,14 @@ input_player1_r = "o"
 input_player1_l2 = "y"
 input_player1_r2 = "p"
 input_player1_l3 = "nul"
+input_player1_l_x_plus = "right"
+input_player1_l_x_minus = "left"
+input_player1_l_y_plus = "down"
+input_player1_l_y_minus = "up"
+input_player1_r_x_plus = "h"
+input_player1_r_x_minus = "f"
+input_player1_r_y_plus = "g"
+input_player1_r_y_minus = "t"
 input_player1_r3 = "nul"
 input_player1_start = "enter"
 input_player1_select = "backspace"
@@ -125,10 +136,16 @@ function postParent(data) {
 // ---------- saves: servidor + IndexedDB para o que não subiu ----------
 const romName = rom.slice(rom.lastIndexOf("/") + 1);
 const stem = romName.includes(".") ? romName.slice(0, romName.lastIndexOf(".")) : romName;
-const srmName = stem + ".srm";
-const srmPath = `${SAVES_DIR}/${srmName}`;
-const saveUrl = `../saves/${encodeURIComponent(system)}/${encodeURIComponent(srmName)}`;
-const pendingKey = `${system}/${srmName}`;
+// nome do save: <rom sem extensão>.srm (SRAM do RetroArch); núcleos que gravam o próprio arquivo no savefile_directory
+// usam outra extensão (cores.json "saveExt": melonDS grava .sav). Definido em main(), depois de saber o núcleo.
+let srmName, srmPath, saveUrl, pendingKey;
+function setSaveName(ext) {
+  srmName = stem + ext;
+  srmPath = `${SAVES_DIR}/${srmName}`;
+  saveUrl = `../saves/${encodeURIComponent(system)}/${encodeURIComponent(srmName)}`;
+  pendingKey = `${system}/${srmName}`;
+}
+setSaveName(".srm");
 
 function idb() {
   return new Promise((resolve, reject) => {
@@ -339,6 +356,7 @@ async function main() {
   if (sys && sys.core && !sys.cores.includes(core)) core = sys.core;
   if (!core) return fatal("sistema sem emulador no navegador", sys ? `${sys.fullname || system}: ${sys.note || ""}` : system);
   state.core = core;
+  if (sys && sys.saveExt) setSaveName(sys.saveExt);
 
   // 1. save pendente de uma sessão anterior que não subiu: reenvia antes de tudo
   const pending = await pendingGet();
@@ -359,6 +377,18 @@ async function main() {
   if (!srm) {
     const r = await fetch(fsUrl(`${dirOf(rom)}/${srmName}`)).catch(() => null);
     if (r && r.status === 200) { srm = new Uint8Array(await r.arrayBuffer()); state.srmFromCard = true; log("save inicial do cartão:", srm.length, "bytes"); }
+  }
+  // NDS: o DraStic do aparelho grava <pasta>/backup/<jogo>.dsv (formato DeSmuME: save cru + rodapé "|-DESMUME SAVE-|"
+  // de 122 bytes); o melonDS lê o save cru (.sav). cores.json "cardSave" diz onde procurar.
+  if (!srm && sys && sys.cardSave) {
+    const cs = sys.cardSave;
+    const r = await fetch(fsUrl(`${dirOf(rom)}/${cs.dir}/${stem}${cs.ext}`)).catch(() => null);
+    if (r && r.status === 200) {
+      let d = new Uint8Array(await r.arrayBuffer());
+      const tail = new TextDecoder("latin1").decode(d.subarray(Math.max(0, d.length - 16)));
+      if (cs.footer === "desmume" && tail === "|-DESMUME SAVE-|" && d.length > 122) d = d.slice(0, d.length - 122);
+      srm = d; state.srmFromCard = true; log(`save inicial do cartão (${cs.dir}/${stem}${cs.ext}):`, srm.length, "bytes");
+    }
   }
 
   // 3. manifesto, ROM (se pequena), núcleo e opções em paralelo

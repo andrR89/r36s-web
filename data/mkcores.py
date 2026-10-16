@@ -15,18 +15,28 @@ R = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BIOS_DIR = "/run/media/andre/EASYROMS/bios"
 VARIANT = [r"_rumble$", r"_EX$", r"_xtreme(_amped)?$", r"32$", r"_wide$"]
 
+# núcleos que o buildbot não publica para a web e que build/build-core.sh compila aqui (mesmo commit do RetroArch do
+# nightly, mesmo formato <núcleo>_libretro.{js,wasm}); entram como núcleos web, com a observação na tabela
+OWN_CORES = {
+    "mupen64plus_next": "compilado aqui (build/build-core.sh: mupen64plus-libretro-nx + GLideN64, WebGL2, ASYNCIFY)",
+    "prosystem": "compilado aqui (build/build-core.sh)",
+    "picodrive": "compilado aqui (build/build-core.sh): o do buildbot aborta em todo jogo de 32X (mmap com assinatura errada no emscripten), corrigido",
+    "melonds": "compilado aqui (build/build-core.sh: melonDS libretro, renderizador por software; BIOS/firmware livres embutidos)",
+}
+# núcleos que gravam o save como arquivo próprio (não o .srm da SRAM do RetroArch) no savefile_directory
+SAVE_EXT = {"melonds": ".sav"}
+# save inicial do cartão fora do padrão <rom>.srm ao lado da ROM (emulador do dArkOS fora do RetroArch)
+CARD_SAVE = {"nds": {"dir": "backup", "ext": ".dsv", "footer": "desmume"}}   # DraStic
 # sistemas cujo(s) núcleo(s) do dArkOS não existem na web, mas há outro núcleo web que roda o sistema
 WEB_ALT = {
     "atari2600": ("tia", "stella/stella2014 não existem na web; Tia é o núcleo 2600 do pacote"),
     "mame": ("mame2003_plus", "mame2010 não existe na web; romset 0.139 x 0.78 do MAME 2003-Plus: parte dos jogos não abre"),
     "supergrafx": ("geargrafx", "mednafen_supergrafx não existe na web; Geargrafx roda SuperGrafx"),
     "pico-8": ("retro8", "o dArkOS usa o PICO-8 oficial/fake08 (fora do RetroArch); Retro8 é compatibilidade parcial"),
-    "atari7800": (None, "prosystem não existe no pacote web"),
+    "nds": ("melonds", "o dArkOS usa o DraStic (fora do RetroArch); melonDS no navegador"),
 }
 # sistemas cujo núcleo web existe mas não roda o conteúdo (testado): ficam como "sem núcleo web"
-WEB_BROKEN = {
-    "sega32x": "picodrive web aborta ao carregar 32X (RuntimeError: unreachable; nightlies 2026-10-03 e 2026-10-15)",
-}
+WEB_BROKEN = {}
 # BIOS que cada núcleo procura no system_directory (/roms/bios no dArkOS). required = não abre sem.
 BIOS = {
     "pcsx_rearmed": [("scph1001.bin", False), ("scph5501.bin", False), ("scph7001.bin", False), ("scph101.bin", False)],
@@ -34,6 +44,7 @@ BIOS = {
     "geargrafx": [("syscard3.pce", False)],
     "handy": [("lynxboot.img", False)],
     "mgba": [("gba_bios.bin", False)],
+    "prosystem": [("7800 BIOS (U).rom", False)],
     "gambatte": [("gb_bios.bin", False), ("gbc_bios.bin", False)],
     "nestopia": [("disksys.rom", False)],              # só FDS
     "mame2003_plus": [("mame2003-plus/hiscore.dat", False)],
@@ -48,6 +59,7 @@ LIBRARY = {
     "gearsystem": "Gearsystem", "mednafen_pce_fast": "Beetle PCE Fast", "geargrafx": "Geargrafx", "fbneo": "FinalBurn Neo",
     "fbalpha2012": "FB Alpha 2012", "mame2003_plus": "MAME 2003-Plus", "handy": "Handy", "mednafen_lynx": "Beetle Lynx",
     "pcsx_rearmed": "PCSX-ReARMed", "tia": "Tia", "retro8": "retro8", "ecwolf": "ecwolf", "scummvm": "scummvm",
+    "mupen64plus_next": "Mupen64Plus-Next", "parallel_n64": "ParaLLEl N64", "melonds": "melonDS", "prosystem": "ProSystem",
     "mednafen_ngp": "Beetle NeoPop", "mednafen_wswan": "Beetle WonderSwan", "mednafen_vb": "Beetle VB",
 }
 
@@ -102,7 +114,8 @@ def hidden_systems(cfg):
     return set(m.group(1).split(";")) if m else set()
 
 def main(cfg, manifest_path, out_json, out_md):
-    web = set(open(os.path.join(R, "data/web-cores.txt")).read().split())
+    bot = set(open(os.path.join(R, "data/web-cores.txt")).read().split())
+    web = bot | set(OWN_CORES)
     hidden = hidden_systems(cfg)
     files = json.load(open(manifest_path))["files"]
     games = {}
@@ -131,6 +144,8 @@ def main(cfg, manifest_path, out_json, out_md):
             chosen, note = WEB_ALT[folder]
             if chosen:
                 allowed = [chosen]
+        if chosen in OWN_CORES:
+            note = "; ".join(x for x in (note, OWN_CORES[chosen]) if x)
         if folder in WEB_BROKEN:
             chosen, allowed, note = None, [], WEB_BROKEN[folder]
         darkos = f"{emu}/{dcore}" if dcore else (emu or "comando próprio")
@@ -141,7 +156,7 @@ def main(cfg, manifest_path, out_json, out_md):
         if any(p.startswith(s["path"] + "/neogeo.") for p in games):
             note = (note + "; " if note else "") + "BIOS neogeo.7z na pasta dos jogos (lida sob demanda)"
         # só o núcleo escolhido vai para a web (os outros listados ficam como informação)
-        entry = {"name": s["name"], "fullname": s["fullname"], "games": n, "darkos": darkos, "core": chosen,
+        entry = {"own": chosen in OWN_CORES, "name": s["name"], "fullname": s["fullname"], "games": n, "darkos": darkos, "core": chosen,
                  "fallbackFrom": dcore if chosen and dcore and chosen != dcore else None,
                  "cores": [chosen] if chosen else [], "alternatives": allowed[1:], "note": note,
                  "order": idx, "hidden": s["name"] in hidden}   # order/hidden: posição no carrossel do ES (testes)
@@ -153,6 +168,10 @@ def main(cfg, manifest_path, out_json, out_md):
                                  **({"from": aliases[fn]} if fn in aliases else {})})
             entry["bios"] = need
             entry["library"] = LIBRARY.get(chosen)
+            if folder in CARD_SAVE:
+                entry["cardSave"] = CARD_SAVE[folder]
+            if chosen in SAVE_EXT:
+                entry["saveExt"] = SAVE_EXT[chosen]
         systems[folder] = entry
         rows.append((s["fullname"] or s["name"], folder, n, darkos, chosen, note, entry.get("bios", [])))
     os.makedirs(os.path.dirname(out_json), exist_ok=True)
@@ -162,7 +181,8 @@ def main(cfg, manifest_path, out_json, out_md):
     vplay = [v for v in vis if v["core"]]
     lines = ["# Sistemas do cartão x núcleos web", "",
              "Gerado por `data/mkcores.py` (não editar à mão). Jogos = ROMs que o ES lista (extensões do `es_systems.cfg`).",
-             f"Núcleos web: RetroArch emscripten do buildbot ({len(web)} núcleos, `data/web-cores.txt`).", "",
+             f"Núcleos web: RetroArch emscripten do buildbot ({len(bot)} núcleos, `data/web-cores.txt`) + compilados aqui "
+             f"por `build/build-core.sh` ({', '.join(sorted(OWN_CORES))}).", "",
              f"**{len(play)} de {len(rows)} sistemas jogáveis no navegador — {sum(r[2] for r in play)} de {sum(r[2] for r in rows)} jogos.** "
              f"Visíveis no ES (sem os do HiddenSystems): {len(vplay)} de {len(vis)} sistemas, {sum(v['games'] for v in vplay)} de {sum(v['games'] for v in vis)} jogos.", "",
              "| Sistema | Pasta | Jogos | dArkOS (emulador/núcleo) | Núcleo web | Observação |", "|---|---|---:|---|---|---|"]

@@ -9,7 +9,7 @@ import { chromium } from "/home/andre/Workspace/web-ports/tools/pw/node_modules/
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 const url = process.argv[2] || "http://localhost:8770/r36s/";
 const out = process.argv[3] || "/home/andre/Workspace/web-ports/r36s/tests/out";
-const SAMPLE = "snes,nes,gb,gbc,gba,megadrive,mastersystem,pcengine,psx,n64,neogeo,atarilynx,atari2600,cps1,mame,gamegear,pico-8,sega32x";
+const SAMPLE = "snes,nes,gb,gbc,gba,megadrive,mastersystem,pcengine,psx,n64,nds,neogeo,atarilynx,atari2600,atari7800,cps1,mame,gamegear,pico-8,sega32x,psp";
 const want = (process.argv[4] ?? SAMPLE).split(",").filter(Boolean);
 mkdirSync(out, { recursive: true });
 const cores = JSON.parse(readFileSync(new URL("../web/data/cores.json", import.meta.url)));

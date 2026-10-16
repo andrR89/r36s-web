@@ -1,0 +1,27 @@
+diff --git a/platform/libretro/libretro-common/include/memmap.h b/platform/libretro/libretro-common/include/memmap.h
+index be7fbee..78891e0 100644
+--- a/platform/libretro/libretro-common/include/memmap.h
++++ b/platform/libretro/libretro-common/include/memmap.h
+@@ -27,7 +27,7 @@
+ #include <stdint.h>
+ #include <boolean.h>
+ 
+-#if defined(PSP) || defined(PS2) || defined(GEKKO) || defined(VITA) || defined(_XBOX) || defined(_3DS) || defined(WIIU) || defined(SWITCH) || defined(HAVE_LIBNX) || defined(__PS3__) || defined(__PSL1GHT__) || defined(__EMSCRIPTEN__)
++#if defined(PSP) || defined(PS2) || defined(GEKKO) || defined(VITA) || defined(_XBOX) || defined(_3DS) || defined(WIIU) || defined(SWITCH) || defined(HAVE_LIBNX) || defined(__PS3__) || defined(__PSL1GHT__)
+ /* No mman available */
+ #elif defined(_WIN32) && !defined(_XBOX)
+ #include <windows.h>
+diff --git a/platform/libretro/libretro.c b/platform/libretro/libretro.c
+index 207350d..9fce903 100644
+--- a/platform/libretro/libretro.c
++++ b/platform/libretro/libretro.c
+@@ -423,6 +423,9 @@ void *plat_mmap(unsigned long addr, size_t size, int need_exec, int is_fixed)
+    void *req, *ret;
+ 
+    req = (void *)(uintptr_t)addr;
++#ifdef __EMSCRIPTEN__
++   req = NULL;   /* o mmap do emscripten recusa endereço sugerido (EINVAL); sem dynarec ele não importa */
++#endif
+    ret = mmap(req, size, PROT_READ | PROT_WRITE, flags, -1, 0);
+    if (ret == MAP_FAILED) {
+       if (log_cb)
