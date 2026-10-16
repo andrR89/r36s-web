@@ -7,19 +7,24 @@ R = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(R, "card-sample")
 N_GAMES = 20
 
-ES_SYSTEMS = """<?xml version="1.0"?>
-<systemList>
-  <system>
-    <name>snes</name>
-    <fullname>Super Nintendo</fullname>
-    <path>/roms/snes/</path>
-    <extension>.7z .7Z .zip .ZIP .sfc .SFC .smc .SMC</extension>
-    <command>web-launch snes snes9x %ROM%</command>
-    <platform>snes</platform>
-    <theme>snes</theme>
-  </system>
-</systemList>
-"""
+# es_systems.cfg: o bloco <system> do snes do cartão real (comando completo do dArkOS, extensões reais);
+# o ES web reconhece o comando e lança pela ponte (es-core/src/platform.cpp, runSystemCommand sob _WEB_)
+REAL_ES_SYSTEMS = "/run/media/andre/ROOTFS/etc/emulationstation/es_systems.cfg"
+EASYROMS = "/run/media/andre/EASYROMS"
+# jogos reais (copiados do cartão; o resto da amostra são arquivos vazios só para a lista)
+REAL_ROMS = ["Donkey Kong Country (USA) (PT-BR).7z",
+             "Donkey Kong Country 2 - Diddy's Kong Quest (USA) (PT-BR).7z",
+             "Donkey Kong Country 3 - Dixie Kong's Double Trouble! (USA) (PT-BR).7z"]
+# save real (copiado, nunca alterado na origem) -> saves/snes/ do projeto (servido pelo hub em /r36s/saves/)
+REAL_SAVES = ["Donkey Kong Country 3 - Dixie Kong's Double Trouble! (USA) (PT-BR).srm"]
+
+def real_snes_system():
+    import re
+    txt = open(REAL_ES_SYSTEMS, encoding="utf-8").read()
+    for block in re.findall(r"[ \t]*<system>.*?</system>", txt, re.S):
+        if "<path>/roms/snes/</path>" in block:
+            return '<?xml version="1.0"?>\n<systemList>\n' + block + "\n</systemList>\n"
+    sys.exit("snes (/roms/snes/) não encontrado em " + REAL_ES_SYSTEMS)
 
 ES_SETTINGS = """<?xml version="1.0"?>
 <config>
@@ -76,7 +81,7 @@ def main():
         shutil.rmtree(OUT)
     home = os.path.join(OUT, "home/ark/.emulationstation")
     os.makedirs(home)
-    open(os.path.join(home, "es_systems.cfg"), "w").write(ES_SYSTEMS)
+    open(os.path.join(home, "es_systems.cfg"), "w").write(real_snes_system())
     open(os.path.join(home, "es_settings.cfg"), "w").write(ES_SETTINGS)
 
     theme_src = os.path.join(X, "essenciais-r36s/themes/theme-EPIC-CODY")
@@ -88,12 +93,15 @@ def main():
     snes = os.path.join(OUT, "roms/snes")
     os.makedirs(os.path.join(snes, "images"))
     roms = sorted(f for f in os.listdir(snes_src) if f.lower().endswith((".7z", ".zip", ".sfc", ".smc")))[:N_GAMES]
+    roms = sorted(set(roms) | set(REAL_ROMS), key=str.lower)
     # capas: snap/ so tem .mp4 neste pack; as imagens estao em media/images/
     snap = os.path.join(snes_src, "media/images")
     entries = []
     for rom in roms:
-        # ROM vira arquivo vazio: o ES só lista, não lê
-        open(os.path.join(snes, rom), "wb").close()
+        if rom in REAL_ROMS:   # cópia real do cartão (a ponte baixa por fs/roms/...)
+            shutil.copyfile(os.path.join(EASYROMS, "snes", rom), os.path.join(snes, rom))
+        else:                  # ROM vira arquivo vazio: o ES só lista, não lê
+            open(os.path.join(snes, rom), "wb").close()
         stem = os.path.splitext(rom)[0]
         img = next((f for f in (os.listdir(snap) if os.path.isdir(snap) else []) if os.path.splitext(f)[0] == stem), None)
         line = f"\t<game>\n\t\t<path>./{esc(rom)}</path>\n\t\t<name>{esc(stem)}</name>\n"
@@ -103,6 +111,12 @@ def main():
         entries.append(line + "\t</game>\n")
     open(os.path.join(snes, "gamelist.xml"), "w").write('<?xml version="1.0"?>\n<gameList>\n' + "".join(entries) + "</gameList>\n")
     add_es_files(OUT)
+    saves = os.path.join(R, "saves/snes")
+    os.makedirs(saves, exist_ok=True)
+    for srm in REAL_SAVES:
+        dst = os.path.join(saves, srm)
+        if not os.path.exists(dst):   # não pisa no progresso feito no navegador
+            shutil.copyfile(os.path.join(EASYROMS, "snes", srm), dst)
     print(f"card-sample: {len(roms)} jogos snes, {sum(1 for e in entries if '<image>' in e)} com capa")
 
 if __name__ == "__main__":

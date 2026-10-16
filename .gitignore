@@ -11,3 +11,4 @@ build/rapidjson/
 web/emulationstation.js
 web/emulationstation.wasm
 tests/out/
+build/retroarch-dl/
