@@ -1,12 +1,27 @@
 // Ponte ES -> RetroArch: o C++ (es-core/src/platform.cpp, runSystemCommand sob _WEB_) faz
 // `await Module.webLaunch({system, core, rom})` e fica suspenso até a promise resolver com o código de saída.
 // O jogo roda em retroarch/play.html num iframe por cima do canvas do ES; ele avisa com postMessage({type:"r36s-exit"}).
-export function installBridge(Module, canvas) {
+// Núcleo: data/cores.json (data/mkcores.py) diz qual núcleo web roda cada sistema (pasta /roms/<sistema>/). O núcleo do
+// comando do dArkOS vale se for o da web; senão usa o mapeado. Sistema sem núcleo web (ou comando não-libretro sem
+// mapeamento): aviso por 3 s por cima do ES, que volta para a lista na hora (código 1).
+export async function installBridge(Module, canvas) {
   const r36s = window.r36s;
   r36s.game = null;
+  let cores = { systems: {} };
+  try { cores = await fetch("data/cores.json").then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }); }
+  catch (e) { console.warn("[r36s] data/cores.json indisponível", e); }
+  r36s.cores = cores;
 
   Module.webLaunch = ({ system, core, rom }) => new Promise(resolve => {
     console.log("[r36s] lançando", system, core, rom);
+    const sys = cores.systems[system];
+    if (!sys || !sys.core) {
+      const name = sys ? sys.fullname || system : system || "este sistema";
+      notice("Sistema sem emulador no navegador", sys && sys.note ? `${name}: ${sys.note}` : name);
+      r36s.lastGame = { system, core, rom, code: 1, why: "sem núcleo web", started: false };
+      return resolve(1);
+    }
+    if (!sys.cores.includes(core)) { if (core) console.log(`[r36s] núcleo ${core} não existe na web: usando ${sys.core}`); core = sys.core; }
     const f = document.createElement("iframe");
     f.id = "game";
     f.title = "jogo";
@@ -42,6 +57,17 @@ export function installBridge(Module, canvas) {
     r36s.game = game;
     f.focus();
   });
+}
+
+// aviso HTML por cima do ES (não mexe no ES): some sozinho
+export function notice(text, sub, ms = 3000) {
+  document.getElementById("notice")?.remove();
+  const d = document.createElement("div");
+  d.id = "notice"; d.setAttribute("role", "alert");
+  d.append(text);
+  if (sub) { const s = document.createElement("small"); s.textContent = sub; d.append(s); }
+  document.body.append(d);
+  setTimeout(() => d.remove(), ms);
 }
 
 // Foco no ES: o SDL escuta o teclado no #canvas. Ao carregar, ao clicar em qualquer lugar e ao voltar para a aba,

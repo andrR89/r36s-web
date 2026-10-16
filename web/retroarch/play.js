@@ -1,19 +1,25 @@
-// Player do RetroArch web para o R36S no navegador (ver play.html e docs/port-notes.md, seção RetroArch).
-// Fluxo: valida parâmetros -> reenvia save pendente do IndexedDB -> baixa save do servidor (404 = sem save;
-// erro de rede = NÃO inicia) -> baixa ROM (fs/roms/...) -> sobe o núcleo (snes9x_libretro.js) com MEMFS e
-// um retroarch.cfg derivado do dArkOS -> a cada 2 s sobe o .srm se mudou -> na saída, PUT final e avisa o pai.
+// Player do RetroArch web para o R36S no navegador (ver play.html e docs/port-notes.md, seções RetroArch e Etapa 3).
+// Fluxo: valida parâmetros e o núcleo (../data/cores.json) -> reenvia save pendente do IndexedDB -> baixa save do
+// servidor (404 = tenta o .srm do cartão ao lado da ROM; erro de rede = NÃO inicia) -> ROM em /roms/<sistema>/ como no
+// aparelho (pequena: baixada; grande, irmãs da pasta, faixas de .cue/.m3u e BIOS em /roms/bios: arquivos sob demanda
+// por Range) -> sobe o núcleo com MEMFS e um retroarch.cfg derivado do dArkOS + opções de núcleo do cartão ->
+// a cada 2 s sobe o .srm se mudou -> na saída, PUT final e avisa o pai.
 
 const RA = "/home/web_user/retroarch";
 const CFG = `${RA}/userdata/retroarch.cfg`;
 const CONTENT_DIR = `${RA}/userdata/content`;
 const SAVES_DIR = `${RA}/userdata/saves`;
 const STATES_DIR = `${RA}/userdata/states`;
-const SYSTEM_DIR = `${RA}/userdata/system`;
+const SYSTEM_DIR = "/roms/bios";   // system_directory do retroarch.cfg do dArkOS
+const CORE_OPTS = `${RA}/userdata/retroarch-core-options.cfg`;
+const CARD_RA = "../fs/home/ark/.config/retroarch";   // cópia dos cfgs do ROOTFS (data/mkcard.py)
 const SYNC_MS = 2000;
+const EAGER_MAX = 48 << 20;   // ROM até 48 MB: baixa inteira; acima (CHD/ISO): sob demanda
+const CHUNK = 4 << 20;        // pedaço dos arquivos sob demanda
 
 const params = new URLSearchParams(location.search);
 const system = params.get("system") || "";
-const core = params.get("core") || "";
+let core = params.get("core") || "";
 const rom = params.get("rom") || "";
 const embedded = window.parent !== window;
 const msg = document.getElementById("msg");
@@ -23,9 +29,10 @@ const log = (...a) => console.log("[play]", ...a);
 const state = { module: null, finished: false, started: false };
 window.r36sPlay = state;   // inspeção nos testes
 
-// teclado: mesmo do ES (setas, Enter=A, Esc=B, F1=Start, F2=Select) + X=S, Y=A, L=Q, R=W (as teclas do retroarch.cfg
-// real do dArkOS para X/Y/L/R). Atalhos com Select (F2) segurado, como no aparelho (Select = hotkey):
-// Select+Start = sair, Select+Esc(B) = salvar estado, Select+Enter(A) = carregar estado, Select+F3 = menu do RetroArch.
+// teclado (layout do andre, igual no ES e em todos os sistemas): WASD = direcional, L=A K=B J=Y I=X U=L O=R, Enter=Start,
+// Backspace=Select, Backspace+Enter = sair (F12 sintético, abaixo), Esc = menu do RetroArch, F5/F7 = salvar/carregar estado.
+// Extras para núcleos que usam L2/R2 (PS1): Y = L2 (ao lado do U=L), P = R2 (ao lado do O=R).
+// Overrides/remaps automáticos do RetroArch ficam desligados: os do cartão entram filtrados (sem teclado nem caminhos).
 const RETROARCH_CFG = `
 config_save_on_exit = "false"
 video_driver = "gl"
@@ -40,6 +47,10 @@ pause_nonactive = "false"
 savefile_directory = "${SAVES_DIR}"
 savestate_directory = "${STATES_DIR}"
 system_directory = "${SYSTEM_DIR}"
+core_options_path = "${CORE_OPTS}"
+global_core_options = "true"
+auto_overrides_enable = "false"
+auto_remaps_enable = "false"
 sort_savefiles_enable = "false"
 sort_savefiles_by_content_enable = "false"
 sort_savestates_enable = "false"
@@ -61,8 +72,8 @@ input_player1_x = "i"
 input_player1_y = "j"
 input_player1_l = "u"
 input_player1_r = "o"
-input_player1_l2 = "nul"
-input_player1_r2 = "nul"
+input_player1_l2 = "y"
+input_player1_r2 = "p"
 input_player1_l3 = "nul"
 input_player1_r3 = "nul"
 input_player1_start = "enter"
@@ -228,10 +239,104 @@ function fatal(text, detail) {
   if (embedded) setTimeout(go, 8000);
 }
 
+// ---------- arquivos do cartão sob demanda ----------
+const fsUrl = path => "../fs" + path.split("/").map(encodeURIComponent).join("/");
+const dirOf = p => p.slice(0, p.lastIndexOf("/")) || "/";
+const lazyStats = { files: 0, requests: 0, bytes: 0 };
+state.lazy = lazyStats;
+
+// manifesto do FS do ES (o pai já tem; sozinho, baixa): lista das pastas e da BIOS sem perguntar ao servidor
+async function loadManifest() {
+  try { if (embedded && parent.r36s && parent.r36s.fs && parent.r36s.fs.manifest) return parent.r36s.fs.manifest; } catch (e) {}
+  const r = await fetch("../data/manifest.json");
+  if (!r.ok) throw new Error(`manifest HTTP ${r.status}`);
+  return r.json();
+}
+
+// Arquivo do MEMFS cujo conteúdo vem do servidor por Range, em pedaços de 4 MB, na hora da leitura. O núcleo lê com
+// fread síncrono: XHR síncrono com charset x-user-defined (o modo arraybuffer síncrono não existe fora de worker).
+function lazyFile(FS, path, url, size) {
+  const chunks = new Map();
+  const get = i => {
+    let c = chunks.get(i);
+    if (c) return c;
+    const from = i * CHUNK, to = Math.min(size, from + CHUNK) - 1;
+    const x = new XMLHttpRequest();
+    x.open("GET", url, false);
+    x.setRequestHeader("Range", `bytes=${from}-${to}`);
+    x.overrideMimeType("text/plain; charset=x-user-defined");
+    x.send();
+    if (x.status !== 206 && x.status !== 200) { console.warn("[play] leitura falhou", url, x.status); throw new FS.ErrnoError(29); }
+    const t = x.responseText;
+    c = new Uint8Array(t.length);
+    for (let k = 0; k < t.length; k++) c[k] = t.charCodeAt(k) & 0xff;
+    if (x.status === 200 && c.length > to - from + 1) c = c.subarray(from, to + 1);   // servidor sem Range
+    chunks.set(i, c);
+    lazyStats.requests++; lazyStats.bytes += c.length;
+    return c;
+  };
+  try { FS.unlink(path); } catch (e) {}
+  const node = FS.createFile(dirOf(path), path.slice(path.lastIndexOf("/") + 1), {}, true, false);
+  node.contents = null;
+  Object.defineProperty(node, "usedBytes", { get: () => size });
+  const ops = Object.assign({}, node.stream_ops);
+  ops.read = (stream, buffer, offset, length, position) => {
+    if (position >= size) return 0;
+    const n = Math.min(length, size - position);
+    let done = 0;
+    while (done < n) {
+      const pos = position + done, i = Math.floor(pos / CHUNK), c = get(i), a = pos - i * CHUNK;
+      const take = Math.min(n - done, c.length - a);
+      if (take <= 0) break;
+      buffer.set(c.subarray(a, a + take), offset + done);
+      done += take;
+    }
+    return done;
+  };
+  ops.write = () => { throw new FS.ErrnoError(2); };   // EACCES: cartão é só leitura
+  ops.mmap = () => { throw new FS.ErrnoError(43); };
+  node.stream_ops = ops;
+  lazyStats.files++;
+  return node;
+}
+
+// arquivos que um .cue/.m3u/.gdi/.ccd cita (faixas .bin, discos): nomes relativos à pasta dele
+function companionsOf(name, text) {
+  const ext = name.slice(name.lastIndexOf(".")).toLowerCase(), out = [];
+  if (ext === ".cue") for (const m of text.matchAll(/^\s*FILE\s+(?:"([^"]+)"|(\S+))/gmi)) out.push(m[1] || m[2]);
+  else if (ext === ".m3u") for (const l of text.split(/\r?\n/)) { const t = l.trim(); if (t && !t.startsWith("#")) out.push(t); }
+  else if (ext === ".gdi") for (const l of text.split(/\r?\n/).slice(1)) { const m = l.match(/^\s*\d+\s+\d+\s+\d+\s+\d+\s+(?:"([^"]+)"|(\S+))/); if (m) out.push(m[1] || m[2]); }
+  else if (ext === ".ccd") { const stem = name.slice(0, name.lastIndexOf(".")); out.push(stem + ".img", stem + ".sub"); }
+  return out;
+}
+const SHEET = /\.(cue|m3u|gdi|ccd)$/i;
+
+async function headSize(path) {
+  const r = await fetch(fsUrl(path), { method: "HEAD" });
+  return r.ok ? Number(r.headers.get("Content-Length")) : -1;
+}
+
+// cfg "chave = valor" -> Map
+function parseCfg(text) {
+  const m = new Map();
+  for (const l of (text || "").split(/\r?\n/)) { const x = l.match(/^\s*([A-Za-z0-9_\-.]+)\s*=\s*"?(.*?)"?\s*$/); if (x) m.set(x[1], x[2]); }
+  return m;
+}
+const textOr404 = url => fetch(url).then(r => r.status === 200 ? r.text() : null, () => null);
+// overrides do cartão que não podem valer na web: teclado/controle, caminhos, drivers
+const OVERRIDE_BLOCK = /^(input_|joypad_|.*_directory$|.*_path$|video_driver$|audio_driver$|menu_driver$|libretro_|core_options|global_core_options|config_save_on_exit|savefile|savestate|sort_|auto_)/;
+
 // ---------- início ----------
 async function main() {
-  if (!/^[a-z0-9_-]+$/.test(system) || !/^[a-z0-9_]+$/.test(core) || !rom.startsWith("/roms/") || rom.split("/").includes(".."))
+  if (!/^[a-z0-9_-]+$/.test(system) || !/^[a-z0-9_]*$/.test(core) || !rom.startsWith("/roms/") || rom.split("/").includes(".."))
     return fatal("parâmetros inválidos", `system=${system} core=${core} rom=${rom}`);
+
+  // 0. núcleo web do sistema (data/cores.json, data/mkcores.py)
+  let sys = null, coresJson = {};
+  try { coresJson = await fetch("../data/cores.json").then(r => r.json()); sys = coresJson.systems[system]; } catch (e) { console.warn("[play] cores.json", e); }
+  if (sys && sys.core && !sys.cores.includes(core)) core = sys.core;
+  if (!core) return fatal("sistema sem emulador no navegador", sys ? `${sys.fullname || system}: ${sys.note || ""}` : system);
+  state.core = core;
 
   // 1. save pendente de uma sessão anterior que não subiu: reenvia antes de tudo
   const pending = await pendingGet();
@@ -241,7 +346,7 @@ async function main() {
     catch (e) { return fatal("save pendente não pôde ser enviado ao servidor", e.message); }
   }
 
-  // 2. save do servidor (404 = sem save). Qualquer outra falha: não inicia (não sobrescrever progresso)
+  // 2. save do servidor (404 = sem save: tenta o .srm do cartão ao lado da ROM). Outra falha: não inicia
   show("carregando…", romName);
   let srm = null;
   try {
@@ -249,17 +354,31 @@ async function main() {
     if (r.status === 200) srm = new Uint8Array(await r.arrayBuffer());
     else if (r.status !== 404) throw new Error(`HTTP ${r.status}`);
   } catch (e) { return fatal("não deu para ler o save no servidor", e.message); }
+  if (!srm) {
+    const r = await fetch(fsUrl(`${dirOf(rom)}/${srmName}`)).catch(() => null);
+    if (r && r.status === 200) { srm = new Uint8Array(await r.arrayBuffer()); state.srmFromCard = true; log("save inicial do cartão:", srm.length, "bytes"); }
+  }
 
-  // 3. ROM + núcleo em paralelo
-  const romUrl = "../fs" + rom.split("/").map(encodeURIComponent).join("/");
-  let romData, factory;
+  // 3. manifesto, ROM (se pequena), núcleo e opções em paralelo
+  let manifest, romData, factory, coreOpts, cardOverride;
+  const lib = sys && sys.library;
   try {
-    [romData, factory] = await Promise.all([
-      fetch(romUrl).then(r => { if (!r.ok) throw new Error(`ROM HTTP ${r.status}`); return r.arrayBuffer(); }),
+    manifest = await loadManifest();
+    const romEntry = manifest.files[rom];
+    const romSize = romEntry ? romEntry.size : await headSize(rom);
+    if (romSize < 0) throw new Error("ROM não encontrada no cartão");
+    state.romSize = romSize;
+    [romData, factory, coreOpts, cardOverride] = await Promise.all([
+      romSize <= EAGER_MAX || SHEET.test(rom)
+        ? fetch(fsUrl(rom)).then(r => { if (!r.ok) throw new Error(r.status === 503 ? "cartão não montado" : `ROM HTTP ${r.status}`); return r.arrayBuffer(); })
+        : null,
       import(`./${core}_libretro.js`).then(m => m.default),
+      textOr404(`${CARD_RA}/retroarch-core-options.cfg`),
+      lib ? Promise.all([`${lib}/${lib}.cfg`, `${lib}/${lib}.opt`, `${lib}/${stem}.cfg`, `${lib}/${stem}.opt`]
+        .map(f => textOr404(`${CARD_RA}/config/${f.split("/").map(encodeURIComponent).join("/")}`))) : [],
     ]);
   } catch (e) { return fatal("não deu para carregar o jogo", e.message); }
-  if (!romData.byteLength) return fatal("ROM vazia", romName);
+  if (romData && !romData.byteLength) return fatal("ROM vazia", romName);
 
   const corePath = `${RA}/cores/${core}_libretro.core`;
   let Module;
@@ -277,19 +396,60 @@ async function main() {
   state.module = Module;
   const FS = Module.FS;
   const mkdirp = p => { let cur = ""; for (const part of p.split("/").filter(Boolean)) { cur += "/" + part; try { FS.mkdir(cur); } catch (e) {} } };
-  for (const d of [`${RA}/cores`, CONTENT_DIR, SAVES_DIR, STATES_DIR, SYSTEM_DIR]) mkdirp(d);
+  const romDir = dirOf(rom);
+  for (const d of [`${RA}/cores`, romDir, SAVES_DIR, STATES_DIR, SYSTEM_DIR]) mkdirp(d);
   FS.writeFile(corePath, new Uint8Array());   // o núcleo é ligado estaticamente; o RetroArch só confere o arquivo
-  FS.writeFile(CFG, RETROARCH_CFG);
-  const contentPath = `${CONTENT_DIR}/${romName}`;
-  FS.writeFile(contentPath, new Uint8Array(romData));
-  if (srm) { FS.writeFile(srmPath, srm); sync.last = hash(srm); log("save do servidor:", srm.length, "bytes"); }
+
+  // ROM no caminho do aparelho; irmãs da pasta (arcade: BIOS/romset pai; multidisco) e BIOS sob demanda
+  const have = new Set();
+  for (const [p, f] of Object.entries(manifest.files)) {
+    if (p === rom || !(f.kind === "empty" || f.kind === "lazy")) continue;
+    if (dirOf(p) === romDir || p.startsWith(SYSTEM_DIR + "/")) { mkdirp(dirOf(p)); lazyFile(FS, p, fsUrl(p), f.size); have.add(p); }
+  }
+  for (const [name, from] of Object.entries(coresJson.biosAliases || {})) {
+    const src = manifest.files[`${SYSTEM_DIR}/${from}`];
+    if (!src) continue;
+    const dot = name.lastIndexOf(".");
+    for (const n of new Set([name, name.slice(0, dot).toUpperCase() + name.slice(dot)]))   // pcsx_rearmed procura SCPH1001.bin
+      if (!have.has(`${SYSTEM_DIR}/${n}`)) lazyFile(FS, `${SYSTEM_DIR}/${n}`, fsUrl(`${SYSTEM_DIR}/${from}`), src.size);
+  }
+  if (romData) FS.writeFile(rom, new Uint8Array(romData));
+  else lazyFile(FS, rom, fsUrl(rom), state.romSize);
+  have.add(rom);
+  // .cue/.m3u: as faixas/discos citados (as .bin não estão no manifesto: não são extensão de jogo)
+  const sheets = romData && SHEET.test(rom) ? [[rom, new TextDecoder().decode(romData)]] : [];
+  for (let i = 0; i < sheets.length && i < 16; i++) {
+    const [p, text] = sheets[i];
+    for (const ref of companionsOf(p, text)) {
+      const cp = ref.startsWith("/") ? ref : `${dirOf(p)}/${ref}`;
+      if (cp.split("/").includes("..")) continue;
+      if (SHEET.test(cp)) { const t = await textOr404(fsUrl(cp)); if (t !== null) { mkdirp(dirOf(cp)); FS.writeFile(cp, t); have.add(cp); sheets.push([cp, t]); } continue; }
+      if (have.has(cp)) continue;
+      const size = await headSize(cp);
+      if (size >= 0) { mkdirp(dirOf(cp)); lazyFile(FS, cp, fsUrl(cp), size); have.add(cp); }
+      else console.warn("[play] faixa citada não encontrada:", cp);
+    }
+  }
+
+  // opções de núcleo do cartão (retroarch-core-options.cfg + .opt do núcleo/jogo) e overrides .cfg filtrados
+  const opts = parseCfg(coreOpts);
+  const [ovCore, optCore, ovGame, optGame] = cardOverride;
+  for (const t of [optCore, optGame]) for (const [k, v] of parseCfg(t)) opts.set(k, v);
+  FS.writeFile(CORE_OPTS, [...opts].map(([k, v]) => `${k} = "${v}"`).join("\n") + "\n");
+  let cfg = RETROARCH_CFG;
+  const applied = [];
+  for (const t of [ovCore, ovGame]) for (const [k, v] of parseCfg(t)) if (!OVERRIDE_BLOCK.test(k)) { cfg += `${k} = "${v}"\n`; applied.push(k); }
+  if (applied.length) log("overrides do cartão:", applied.join(", "));
+  state.coreOptions = opts.size;
+  FS.writeFile(CFG, cfg);
+  if (srm) { FS.writeFile(srmPath, srm); sync.last = hash(srm); log("save:", srm.length, "bytes"); }
 
   msg.style.display = "none";
   canvas.focus();
   state.started = true;
   state.timer = setInterval(checkSave, SYNC_MS);
-  postParent({ type: "r36s-started" });
-  Module.callMain(["-v", "-c", CFG, contentPath]);
+  postParent({ type: "r36s-started", core });
+  Module.callMain(["-v", "-c", CFG, rom]);
 }
 
 // layout WASD+JKUI: Select+Start (Backspace+Enter) sai do jogo. O RetroArch só faz atalho de 2 teclas

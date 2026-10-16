@@ -1,7 +1,7 @@
 From ceebe045f0181452ea69e965e5d164edfa8c398b Mon Sep 17 00:00:00 2001
 From: andrR89 <3686269+andrR89@users.noreply.github.com>
 Date: Fri, 16 Oct 2026 16:04:25 -0300
-Subject: [PATCH 4/5] web: texto (ALPHA->RGBA) e glifos vazios no GL1 emulado
+Subject: [PATCH 4/6] web: texto (ALPHA->RGBA) e glifos vazios no GL1 emulado
 
 ---
  es-core/src/renderers/Renderer_GLES10.cpp | 40 +++++++++++++++++++++++

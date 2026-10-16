@@ -12,7 +12,12 @@ class SavesTest(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         cls.base = cls.tmp.name
-        os.makedirs(os.path.join(cls.base, "r36s/web"))
+        os.makedirs(os.path.join(cls.base, "r36s/web/fs"))
+        # cartão: um "montado" (diretório real) e um desmontado (symlink quebrado), como web/fs/roms -> /run/media/...
+        os.makedirs(os.path.join(cls.base, "cartao/snes"))
+        open(os.path.join(cls.base, "cartao/snes/jogo.sfc"), "wb").write(bytes(range(256)) * 4)
+        os.symlink(os.path.join(cls.base, "cartao"), os.path.join(cls.base, "r36s/web/fs/roms"))
+        os.symlink(os.path.join(cls.base, "nao-montado"), os.path.join(cls.base, "r36s/web/fs/outro"))
         os.makedirs(os.path.join(cls.base, "outro/web"))
         open(os.path.join(cls.base, "outro/web/index.html"), "w").write("outro")
         cls.port = free_port()
@@ -66,6 +71,19 @@ class SavesTest(unittest.TestCase):
         c.putheader("Content-Length", str(16 * 1024 * 1024 + 1)); c.endheaders()
         self.assertEqual(c.getresponse().status, 413); c.close()
         self.assertFalse(os.path.exists(self.disk("snes", "grande.srm")))
+
+    def test_card_range(self):
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        c.request("GET", "/r36s/fs/roms/snes/jogo.sfc", headers={"Range": "bytes=256-259"})
+        r = c.getresponse(); data = r.read(); c.close()
+        self.assertEqual((r.status, data), (206, bytes([0, 1, 2, 3])))
+
+    def test_unmounted_card_503(self):
+        st, body = self.req("GET", "/r36s/fs/outro/snes/jogo.sfc")
+        self.assertEqual(st, 503)
+        self.assertIn(b"nao montada", body)
+        self.assertEqual(self.req("HEAD", "/r36s/fs/outro/snes/jogo.sfc")[0], 503)
+        self.assertEqual(self.req("GET", "/r36s/fs/roms/snes/nada.sfc")[0], 404)   # montado, arquivo inexistente
 
     def test_other_sites_untouched(self):
         self.assertEqual(self.req("GET", "/outro/index.html"), (200, b"outro"))

@@ -1,0 +1,39 @@
+--- a/hub.py
++++ b/hub.py
+@@ -64,6 +64,27 @@
+     def send_status(self, code):
+         self.send_response(code); self.send_header("Content-Length", "0"); self.end_headers()
+ 
++    def unmounted(self, fpath):
++        """Arquivo que não existe porque o caminho passa por um symlink quebrado (r36s: web/fs/roms -> cartão
++        desmontado): responde 503 com o motivo em vez de 404."""
++        p = fpath
++        while p and p != os.path.dirname(p):
++            if os.path.islink(p) and not os.path.exists(p):
++                msg = f"midia nao montada: {os.readlink(p)}\n".encode()
++                self.send_response(503); self.send_header("Content-Type", "text/plain; charset=utf-8")
++                self.send_header("Content-Length", str(len(msg))); self.end_headers()
++                if self.command != "HEAD":
++                    self.wfile.write(msg)
++                return True
++            p = os.path.dirname(p)
++        return False
++
++    def do_HEAD(self):
++        fpath = self.translate_path(self.path)
++        if not os.path.exists(fpath) and self.unmounted(fpath):
++            return
++        super().do_HEAD()
++
+     def do_PUT(self):
+         p = urllib.parse.urlsplit(self.path).path
+         if not p.startswith(SAVES_PREFIX):
+@@ -122,6 +143,8 @@
+             self.send_response(301); self.send_header("Location", f"/{name}/"); self.end_headers(); return
+         rng = self.headers.get("Range")
+         fpath = self.translate_path(self.path)
++        if not os.path.exists(fpath) and self.unmounted(fpath):
++            return
+         if rng and rng.startswith("bytes=") and os.path.isfile(fpath):
+             return self.send_range(fpath, rng)
+         super().do_GET()

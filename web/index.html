@@ -9,6 +9,11 @@
   #canvas{display:block;margin:auto;height:100% !important;width:auto !important;aspect-ratio:4/3;max-width:100%;image-rendering:auto;outline:none}
   #game{position:fixed;inset:0;width:100%;height:100%;border:0;background:#000;z-index:10}
   #status{position:fixed;left:8px;bottom:8px;color:#888;font:12px system-ui}
+  #status.err{color:#f88;font-size:14px}
+  /* aviso da ponte (sistema sem emulador no navegador): por cima do ES por alguns segundos */
+  #notice{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:20;max-width:80%;padding:18px 26px;border-radius:10px;
+          background:rgba(20,20,24,.92);color:#eee;font:18px system-ui;text-align:center;box-shadow:0 4px 30px #000;pointer-events:none}
+  #notice small{display:block;margin-top:6px;color:#aaa;font-size:13px}
 </style>
 <!-- id "canvas": o port SDL2 registra os handlers em #canvas -->
 <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
@@ -31,14 +36,17 @@
   });
   const info = await bootFS(Module);
   status.textContent = `${info.files} arquivos (${info.lazy} sob demanda)`;
+  // cartão desmontado (o hub responde 503 em fs/roms/...): o ES abre com as listas, mas mídia e jogos não carregam
+  const card = await fetch("fs/roms/bios/", { method: "HEAD" }).then(r => r.status, () => 0);
+  if (card === 503) { status.textContent = "cartão não montado: capas e jogos indisponíveis"; status.className = "err"; }
   Module.ENV.HOME = "/home/ark";
   Object.assign(window.r36s, { Module, fs: info });
-  installBridge(Module, canvas);   // Module.webLaunch: jogo no RetroArch (iframe retroarch/play.html)
+  await installBridge(Module, canvas);   // Module.webLaunch: jogo no RetroArch (iframe retroarch/play.html); lê data/cores.json
   canvas.focus();
   // resolução do R36S (640x480) vem do shim de display (es-core/src/web/go2_web.cpp)
   Module.callMain(["--home", "/home/ark"]);
   window.r36s.ready = true;
   window.r36s.readyMs = Math.round(performance.now() - t0);
-  setTimeout(() => status.remove(), 3000);
+  if (card !== 503) setTimeout(() => status.remove(), 3000);
 </script>
 </html>

@@ -1,7 +1,7 @@
 From ae3f5a3e26128c8fc5651a44a715bd2d2462ee7c Mon Sep 17 00:00:00 2001
 From: andrR89 <3686269+andrR89@users.noreply.github.com>
 Date: Fri, 16 Oct 2026 17:03:43 -0300
-Subject: [PATCH 5/5] =?UTF-8?q?web:=20ponte=20de=20lan=C3=A7amento=20(coma?=
+Subject: [PATCH 5/6] =?UTF-8?q?web:=20ponte=20de=20lan=C3=A7amento=20(coma?=
  =?UTF-8?q?ndo=20real=20do=20dArkOS=20->=20Module.webLaunch,=20asyncify),?=
  =?UTF-8?q?=20limpa=20eventos=20SDL=20na=20volta?=
 MIME-Version: 1.0

@@ -33,5 +33,5 @@ export async function bootFS(Module) {
     stats.fetched++; stats.bytes += data.length;
     return 1;
   };
-  return { files: Object.keys(manifest.files).length, lazy: lazy.size, stats };
+  return { files: Object.keys(manifest.files).length, lazy: lazy.size, stats, manifest };   // manifest: o player usa (pastas, BIOS)
 }
