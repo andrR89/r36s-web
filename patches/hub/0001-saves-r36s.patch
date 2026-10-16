@@ -1,0 +1,91 @@
+--- a/hub.py
++++ b/hub.py
+@@ -2,9 +2,13 @@
+ # Servidor único dos ports: cada jogo num caminho (/vena/, /white-knight/...), tudo na mesma porta.
+ # Um jogo = uma pasta ~/Workspace/web-ports/<nome>/ com o site em <nome>/web/ (ou o caminho em ROOTS).
+ # Manda COOP/COEP (threads/SharedArrayBuffer) e suporta Range (áudio/vídeo).
+-import http.server, os, sys, functools, html, urllib.parse
++import http.server, os, re, sys, functools, html, tempfile, urllib.parse
+ 
+-BASE = os.path.dirname(os.path.abspath(__file__))
++BASE = os.environ.get("WEBPORTS_BASE") or os.path.dirname(os.path.abspath(__file__))  # override: testes
++# saves do r36s: GET|PUT /r36s/saves/<sistema>/<arquivo> -> <BASE>/r36s/saves/ (só esse site; ver r36s/tests/test_saves.py)
++SAVES_PREFIX = "/r36s/saves/"
++SAVES_MAX = 16 * 1024 * 1024
++SAVES_SYSTEM = re.compile(r"^[a-z0-9_-]+$")
+ ROOTS = {  # exceções ao padrão <nome>/web
+     "white-knight": "white-knight/project/Build/WebGL",
+ }
+@@ -34,6 +38,16 @@
+         path = cand
+     return path
+ 
++def save_path(raw_path):
++    """Caminho em disco de /r36s/saves/<sistema>/<arquivo>, ou None se inválido (fora de saves/, '..', subpastas)."""
++    parts = raw_path[len(SAVES_PREFIX):].split("/")
++    if len(parts) != 2:
++        return None
++    system, name = (urllib.parse.unquote(x) for x in parts)
++    if not SAVES_SYSTEM.match(system) or not name or name.startswith(".") or "/" in name or "\\" in name or "\0" in name:
++        return None
++    return os.path.join(BASE, "r36s", "saves", system, name)
++
+ class Handler(http.server.SimpleHTTPRequestHandler):
+     extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map,
+                       ".wasm": "application/wasm", ".mjs": "application/javascript", ".js": "application/javascript"}
+@@ -47,8 +61,55 @@
+         path = os.path.join(root, rest)
+         return path if os.path.exists(path) else nocase(root, rest)
+ 
++    def send_status(self, code):
++        self.send_response(code); self.send_header("Content-Length", "0"); self.end_headers()
++
++    def do_PUT(self):
++        p = urllib.parse.urlsplit(self.path).path
++        if not p.startswith(SAVES_PREFIX):
++            return self.send_status(405)
++        fpath = save_path(p)
++        if not fpath:
++            return self.send_status(400)
++        try:
++            size = int(self.headers.get("Content-Length", ""))
++        except ValueError:
++            return self.send_status(411)
++        if size < 0 or size > SAVES_MAX:
++            self.close_connection = True
++            return self.send_status(413)
++        data = self.rfile.read(size)
++        if len(data) != size:
++            return self.send_status(400)
++        os.makedirs(os.path.dirname(fpath), exist_ok=True)
++        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(fpath), prefix=".tmp-")
++        try:
++            with os.fdopen(fd, "wb") as f:
++                f.write(data); f.flush(); os.fsync(f.fileno())
++            if os.path.exists(fpath):  # .bak = versão anterior
++                os.replace(fpath, fpath + ".bak")
++            os.replace(tmp, fpath)
++        except BaseException:
++            if os.path.exists(tmp):
++                os.remove(tmp)
++            raise
++        self.send_status(204)
++
++    def send_save(self, p):
++        fpath = save_path(p)
++        if not fpath:
++            return self.send_status(400)
++        if not os.path.isfile(fpath):
++            return self.send_status(404)
++        with open(fpath, "rb") as f:
++            data = f.read()
++        self.send_response(200); self.send_header("Content-Type", "application/octet-stream")
++        self.send_header("Content-Length", str(len(data))); self.end_headers(); self.wfile.write(data)
++
+     def do_GET(self):
+         p = urllib.parse.urlsplit(self.path).path
++        if p.startswith(SAVES_PREFIX):
++            return self.send_save(p)
+         if p in ("", "/"):
+             body = "<!doctype html><meta charset=utf-8><title>web-ports</title><body style='font:16px system-ui;background:#111;color:#ddd;padding:24px'><h2>web-ports</h2><ul>" + \
+                    "".join(f"<li><a style='color:#e58' href='/{html.escape(n)}/'>{html.escape(n)}</a></li>" for n in sites()) + "</ul>"
