@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>R36S</title>
+<link rel="icon" href="data:,">
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden}
+  #canvas{display:block;margin:auto;height:100% !important;width:auto !important;aspect-ratio:4/3;max-width:100%;image-rendering:auto;outline:none}
+  #status{position:fixed;left:8px;bottom:8px;color:#888;font:12px system-ui}
+</style>
+<!-- id "canvas": o port SDL2 registra os handlers em #canvas -->
+<canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
+<div id="status">carregando…</div>
+<script type="module">
+  import createES from "./emulationstation.js";
+  import { bootFS } from "./fsboot.js";
+  const t0 = performance.now();
+  const status = document.getElementById("status");
+  const canvas = document.getElementById("canvas");
+  window.r36s = { ready: false, t0 };
+  const Module = await createES({
+    canvas,
+    thisProgram: "/usr/bin/emulationstation/emulationstation",   // ES acha resources/ ao lado do executável
+    print: t => console.log("[es]", t),
+    printErr: t => console.warn("[es]", t),
+    locateFile: f => f,
+  });
+  const info = await bootFS(Module);
+  status.textContent = `${info.files} arquivos (${info.lazy} sob demanda)`;
+  Module.ENV.HOME = "/home/ark";
+  Object.assign(window.r36s, { Module, fs: info });
+  canvas.focus();
+  // resolução do R36S (640x480) vem do shim de display (es-core/src/web/go2_web.cpp)
+  Module.callMain(["--home", "/home/ark"]);
+  window.r36s.ready = true;
+  window.r36s.readyMs = Math.round(performance.now() - t0);
+  setTimeout(() => status.remove(), 3000);
+</script>
+</html>

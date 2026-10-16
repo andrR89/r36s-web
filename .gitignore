@@ -8,3 +8,6 @@ web/fs
 __pycache__/
 build/es-out/
 build/rapidjson/
+web/emulationstation.js
+web/emulationstation.wasm
+tests/out/
