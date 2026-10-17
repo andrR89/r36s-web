@@ -22,3 +22,5 @@ web/site/demo/fs/usr/
 web/site/demo/data/
 dist/
 .claude/
+build/upload/
+build/test-out/
