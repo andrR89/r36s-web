@@ -15,3 +15,6 @@ build/retroarch-dl/
 web/retroarch/*_libretro.js
 web/retroarch/*_libretro.wasm
 build/hub-backup/
+web/site/demo/fs/usr/
+web/site/demo/data/
+dist/

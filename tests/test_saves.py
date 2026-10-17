@@ -2,7 +2,7 @@
 # roda o hub num diretório temporário (WEBPORTS_BASE) e numa porta livre: python3 -m unittest tests.test_saves
 import http.client, os, socket, subprocess, sys, tempfile, time, unittest, urllib.parse
 
-HUB = os.path.join(os.path.dirname(__file__), "..", "..", "hub.py")
+HUB = os.environ.get("R36S_HUB") or os.path.join(os.path.dirname(__file__), "..", "..", "hub.py")   # R36S_HUB: outra cópia (worktree)
 
 def free_port():
     s = socket.socket(); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close(); return p
