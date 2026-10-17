@@ -389,6 +389,7 @@ async function main() {
   if (!core) return fatal("sistema sem emulador no navegador", sys ? `${sys.fullname || system}: ${sys.note || ""}` : system);
   state.core = core;
   if (sys && sys.saveExt) setSaveName(sys.saveExt);
+  state.directExit = !!(sys && sys.directExit);
   // "{rom}" = caminho da ROM (EasyRPG grava em <rom>.save/ ao lado do .zip, que é só leitura); senão relativo a SAVES_DIR
   if (sys && sys.saveTree) { saveTree = sys.saveTree.includes("{rom}") ? sys.saveTree.replace("{rom}", rom) : `${SAVES_DIR}/${sys.saveTree}`; setSaveName(".savedata"); }
 
@@ -541,10 +542,23 @@ addEventListener("keydown", e => {
   held.add(e.code);
   if (held.has("Backspace") && held.has("Enter")) {
     held.clear();
+    // núcleo que quebra ao descarregar (ppsspp: "memory access out of bounds" no unload com pthreads): sai direto, sem
+    // passar pelo quit do RetroArch (o save dele já está nos arquivos do memory stick; o finish sobe o blob)
+    if (state.directExit) { finish(0, "saída direta"); return; }
     sendKey("keydown", "F12");
     setTimeout(() => sendKey("keyup", "F12"), 120);
   }
 }, true);
+// erro fatal do núcleo depois de iniciado (trap do wasm no laço principal): não deixa o ES esperando para sempre
+const crashed = ev => {
+  if (!state.started || state.finished) return;
+  const m = String(ev.error || ev.reason || ev.message || ev);
+  if (!/RuntimeError|unreachable|out of bounds|signature mismatch|abort/i.test(m)) return;
+  console.error("[play] núcleo abortou:", m);
+  finish(3, "núcleo abortou");
+};
+addEventListener("error", crashed);
+addEventListener("unhandledrejection", crashed);
 addEventListener("keyup", e => { if (e.isTrusted) held.delete(e.code); }, true);
 addEventListener("blur", () => held.clear());
 

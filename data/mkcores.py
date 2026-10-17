@@ -29,6 +29,8 @@ OWN_CORES = {
 SAVE_EXT = {"melonds": ".sav"}
 # save em árvore (o play.js empacota num blob <rom>.savedata): memory stick do PPSSPP fica em savefile_directory
 SAVE_TREE = {"ppsspp": "PSP/SAVEDATA", "easyrpg": "{rom}.save"}   # EasyRPG: zip só leitura -> grava em <rom>.save/
+# núcleos que quebram no quit do RetroArch: o play.js sai direto (Select+Start) sem descarregar o jogo
+DIRECT_EXIT = {"ppsspp", "easyrpg"}   # easyrpg: atexit com assinatura errada no fim
 # arquivos de apoio servidos de web/retroarch/<url>/ (build/build-core.sh grava index.json) e montados sob demanda
 ASSETS = {"ppsspp": {"url": "assets/ppsspp", "mount": "/roms/bios/PPSSPP"}}
 # save inicial do cartão fora do padrão <rom>.srm ao lado da ROM (emulador do dArkOS fora do RetroArch)
@@ -178,6 +180,8 @@ def main(cfg, manifest_path, out_json, out_md):
             entry["library"] = LIBRARY.get(chosen)
             if folder in CARD_SAVE:
                 entry["cardSave"] = CARD_SAVE[folder]
+            if chosen in DIRECT_EXIT:
+                entry["directExit"] = True
             if chosen in SAVE_TREE:
                 entry["saveTree"] = SAVE_TREE[chosen]
             if chosen in ASSETS:
