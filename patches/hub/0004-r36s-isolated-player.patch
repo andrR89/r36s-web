@@ -1,0 +1,18 @@
+--- a/hub.py
++++ b/hub.py
+@@ -172,8 +172,14 @@
+         # script accounts.google.com/gsi/client não manda CORP -> sem COEP nessas páginas (nada nelas usa threads)
+         # nfsc-drive: mesma regra nas páginas do launcher (login + instalação do Drive); o player em
+         # /nfsc-drive/nfsc/ continua isolado (pthreads) - espelha o _headers do Netlify (nfsc/drive/dist)
++        # r36s/retroarch/isolated.html: aba própria do player para núcleos com pthreads (PSP) lançados pelo site, sempre
++        # crossOriginIsolated (já cairia no else; explícito para não depender das regras do site) - espelha o
++        # _headers do Netlify (r36s/build/site-dist.sh)
+         p = urllib.parse.urlsplit(self.path).path
+-        if p.startswith("/r36s/site/") or (p.startswith("/nfsc-drive/") and not p.startswith("/nfsc-drive/nfsc/")):
++        if p == "/r36s/retroarch/isolated.html":
++            self.send_header("Cross-Origin-Opener-Policy", "same-origin")
++            self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
++        elif p.startswith("/r36s/site/") or (p.startswith("/nfsc-drive/") and not p.startswith("/nfsc-drive/nfsc/")):
+             self.send_header("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
+         else:
+             self.send_header("Cross-Origin-Opener-Policy", "same-origin")

@@ -2,10 +2,14 @@
 //  1. home (1440 e 390 px), sem erro de console     2. login     3. os 4 estados da biblioteca (+ sem índice)
 //  4. ES boota lendo do mock do Drive, painel de comandos, jogo (ROM do Drive), save PUT no Drive e GET na volta
 //  5. modo demonstração + 2 jogadores com controles simulados (navigator.getGamepads falso)   6. joystick de toque
+//  7. PSP (núcleo com threads) no modo Drive: aba isolada (retroarch/isolated.html, crossOriginIsolated) pelo
+//     BroadcastChannel, popup bloqueado -> botão, jogo desenha, save em árvore vai e volta do Drive, saída volta ao ES.
+//     Precisa do cartão montado (ROM de PSP de lá numa biblioteca de teste); sem ele o passo é pulado.
+// E2E_ONLY=home,biblioteca,drive,demo,toque,psp roda só esses passos.
 // O login real do Google não dá para automatizar: o site roda com R36S_CONFIG {auth: "mock", api: <mock>}.
 // Teste com controles físicos e no celular de verdade fica com o andre (docs/deploy.md).
 import { chromium } from "/home/andre/Workspace/web-ports/tools/pw/node_modules/playwright-core/index.mjs";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync, rmSync, cpSync } from "node:fs";
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
@@ -18,6 +22,7 @@ mkdirSync(out, { recursive: true });
 const site = url + "site/";
 const result = { steps: {}, errors: [] };
 const step = (k, v) => { result.steps[k] = v; console.log(k, JSON.stringify(v)); };
+const run = k => !process.env.E2E_ONLY || process.env.E2E_ONLY.split(",").includes(k);
 const check = (cond, why) => { if (!cond) { result.errors.push(why); console.log("FALHOU:", why); } return cond; };
 
 // ---------- mock do Drive: biblioteca = ROMs do demo, índice gerado com os IDs do mock
@@ -36,7 +41,7 @@ const mockGet = p => fetch(api + p).then(r => r.json());
 const browser = await chromium.launch({ executablePath: "/usr/bin/chromium",
   args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required"] });
 const logs = [];
-async function ctx(opts = {}, token = "tok-shared") {
+async function ctx(opts = {}, token = "tok-shared", apiUrl = api) {
   const c = await browser.newContext({ viewport: { width: 1280, height: 800 }, ...opts });
   await c.addInitScript(([api, token]) => {
     window.R36S_CONFIG = { api, auth: "mock", mockToken: token };
@@ -45,7 +50,7 @@ async function ctx(opts = {}, token = "tok-shared") {
       if (/webgl/.test(type)) attrs = Object.assign({}, attrs, { preserveDrawingBuffer: true });
       return orig.call(this, type, attrs);
     };
-  }, [api, token]);
+  }, [apiUrl, token]);
   const p = await c.newPage();
   p.on("console", m => logs.push(`${m.type()}: ${m.text()}`));
   p.on("pageerror", e => logs.push("PAGEERROR " + e.message));
@@ -74,7 +79,7 @@ const selectStart = async p => { await p.keyboard.down("Backspace"); await p.wai
 
 try {
   // ---------- 1. home
-  for (const [w, hgt, name] of [[1440, 900, "home-1440"], [390, 844, "home-390"]]) {
+  if (run("home")) for (const [w, hgt, name] of [[1440, 900, "home-1440"], [390, 844, "home-390"]]) {
     const { c, p } = await ctx({ viewport: { width: w, height: hgt } });
     const errs = [];
     p.on("console", m => { if (m.type() === "error") errs.push(m.text()); });
@@ -93,7 +98,7 @@ try {
 
   // ---------- 2/3. login + estados da biblioteca
   const states = { "tok-shared": "shared", "tok-own": "own", "tok-both": "both", "tok-none": "none", "tok-noindex": "own" };
-  for (const [tok, want] of Object.entries(states)) {
+  if (run("biblioteca")) for (const [tok, want] of Object.entries(states)) {
     const { c, p } = await ctx({}, tok);
     await p.goto(site + "#/entrar");
     if (tok === "tok-shared") await p.screenshot({ path: `${out}/login.png` });
@@ -125,7 +130,7 @@ try {
   }
 
   // ---------- 4. ES do Drive (mock), painel, jogo, saves
-  {
+  if (run("drive")) {
     await fetch(api + "/_mock/reset", { method: "POST" });
     const { c, p } = await ctx({}, "tok-shared");
     await p.goto(site + "#/entrar");
@@ -187,7 +192,7 @@ try {
   }
 
   // ---------- 5. demo + 2 jogadores com controles simulados
-  {
+  if (run("demo")) {
     const { c, p } = await ctx({ viewport: { width: 1280, height: 800 } });
     await c.addInitScript(() => {
       const mk = (index, id) => ({ id, index, connected: true, mapping: "standard", timestamp: 0, axes: [0, 0, 0, 0],
@@ -250,7 +255,7 @@ try {
   }
 
   // ---------- 6. joystick de toque (paisagem e retrato), multitoque
-  for (const [w, hgt, name] of [[844, 390, "toque-paisagem"], [390, 844, "toque-retrato"]]) {
+  if (run("toque")) for (const [w, hgt, name] of [[844, 390, "toque-paisagem"], [390, 844, "toque-retrato"]]) {
     const { c, p } = await ctx({ viewport: { width: w, height: hgt }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
     await p.goto(site + "#/demo");
     const es = await waitES(p);
@@ -279,6 +284,9 @@ try {
     check(r.portrait === (hgt > w), `${name}: orientação`);
     await c.close();
   }
+
+  // ---------- 7. PSP no modo Drive: aba isolada
+  if (run("psp")) await pspIsolated();
 } catch (e) {
   result.errors.push("exceção: " + (e.stack || e));
   console.log(e);
@@ -289,5 +297,126 @@ try {
   console.log(JSON.stringify({ errors: result.errors, fatal }, null, 1));
   await browser.close();
   mock.kill();
+  if (pspMock) pspMock.kill();
   process.exit(result.errors.length || fatal.length ? 1 : 0);
+}
+
+// biblioteca de teste = demo + um jogo de PSP do cartão (symlink; nada é copiado), es_systems com o psp, outro mock
+var pspMock = null;
+async function pspIsolated() {
+  const CARD = "/run/media/andre/EASYROMS/psp", GAME = "Circles, Circles, Circles (USA).cso";
+  if (!existsSync(`${CARD}/${GAME}`)) { step("psp", { skipped: "cartão não montado (" + CARD + ")" }); return; }
+  const demo = join(ROOT, "web/site/demo/fs"), w = join(out, "mock-psp"), fsr = join(w, "fs");
+  rmSync(w, { recursive: true, force: true });
+  mkdirSync(join(fsr, "roms/psp"), { recursive: true });
+  mkdirSync(join(fsr, "etc/emulationstation"), { recursive: true });
+  for (const d of ["home", "usr"]) symlinkSync(join(demo, d), join(fsr, d));
+  for (const d of ["gbc", "nes", "themes"]) symlinkSync(join(demo, "roms", d), join(fsr, "roms", d));
+  symlinkSync(`${CARD}/${GAME}`, join(fsr, "roms/psp", GAME));
+  cpSync(join(demo, "etc/emulationstation/es_input.cfg"), join(fsr, "etc/emulationstation/es_input.cfg"));
+  writeFileSync(join(fsr, "etc/emulationstation/es_systems.cfg"), readFileSync(join(demo, "etc/emulationstation/es_systems.cfg"), "utf8")
+    .replace("</systemList>", `\t<system>\n\t\t<name>psp</name>\n\t\t<fullname>PSP</fullname>\n\t\t<path>/roms/psp/</path>\n\t\t<extension>.iso .ISO .cso .CSO</extension>\n` +
+      `\t\t<command>/usr/local/bin/ppsspp.sh %ROM%</command>\n\t\t<platform>psp</platform>\n\t\t<theme>gbc</theme>\n\t</system>\n</systemList>`));
+  writeFileSync(join(w, "ls.json"), execFileSync("python3", ["-I", join(ROOT, "tests/mock_drive.py"), "--lsjson", join(fsr, "roms")]));
+  execFileSync("python3", [join(ROOT, "data/mkmanifest.py"), fsr, join(w, "index"), "--drive-ids", join(w, "ls.json")]);
+  const port = await freePort();
+  pspMock = spawn("python3", ["-I", join(ROOT, "tests/mock_drive.py"), String(port), "--library", join(fsr, "roms"), "--index", join(w, "index")], { stdio: ["ignore", "pipe", "inherit"] });
+  await new Promise(r => pspMock.stdout.once("data", r));
+  const papi = `http://127.0.0.1:${port}`;
+  const saveName = GAME.replace(/\.cso$/, ".savedata");
+  const savesOf = async () => (await fetch(papi + "/_mock/saves").then(r => r.json())).find(s => s.user === "tok-shared" && s.name === saveName);
+  // save semente no Drive (blob em árvore do play.js: "R36T1\n" + {p,n} + bytes por arquivo)
+  const enc = new TextEncoder(), seedFile = enc.encode("SEED!");
+  const blob = Buffer.concat([enc.encode("R36T1\n"), enc.encode(JSON.stringify({ p: "R36STEST0/SEED.BIN", n: seedFile.length }) + "\n"), seedFile]);
+  await fetch(`${papi}/_mock/seed?` + new URLSearchParams({ user: "tok-shared", system: "psp", name: saveName }), { method: "POST", body: blob });
+
+  const { c, p } = await ctx({}, "tok-shared", papi);
+  await p.goto(site + "#/entrar");
+  await p.click("#google-btn");
+  await p.waitForFunction(() => window.r36sApp.state === "shared");
+  await p.click(".play-btn");
+  const es = await waitES(p);
+  await es.evaluate(() => window.r36s.controls.close());
+  check(await es.evaluate(() => !self.crossOriginIsolated), "psp: página do ES no site não é crossOriginIsolated (premissa)");
+  // nes -> gbc -> psp; entra na lista e lança. O 1º window.open "falha" (popup bloqueado): aparece o botão
+  await es.evaluate(() => { const o = window.open; window.open = function () { window.open = o; return null; }; });
+  await hold(p, "d"); await p.waitForTimeout(1000); await hold(p, "d"); await p.waitForTimeout(1200);
+  await hold(p, "l"); await p.waitForTimeout(1500);
+  await hold(p, "l");
+  await es.waitForFunction(() => document.querySelector("#isolated button"), null, { timeout: 30000 }).catch(() => {});
+  const blocked = await es.evaluate(() => ({ text: document.getElementById("isolated")?.innerText || "", game: window.r36s.game && { isolated: window.r36s.game.isolated, opened: window.r36s.game.opened } }));
+  await p.screenshot({ path: `${out}/psp-bloqueado.png` });
+  step("psp-bloqueado", blocked);
+  check(/PSP abre numa aba própria/.test(blocked.text) && /bloqueou/.test(blocked.text) && blocked.game && blocked.game.isolated && !blocked.game.opened, "psp: popup bloqueado -> aviso com botão");
+  const popup = c.waitForEvent("page", { timeout: 20000 });
+  await es.click("#isolated button");   // "Abrir o jogo"
+  const g = await popup;
+  const glogs = [];
+  g.on("console", m => { glogs.push(`${m.type()}: ${m.text()}`); logs.push(`[aba psp] ${m.type()}: ${m.text()}`); });
+  g.on("pageerror", e => logs.push("[aba psp] PAGEERROR " + e.message));
+  // a aba nasce em about:blank e troca de processo (COOP): espera a página isolada carregar
+  await g.waitForURL(/isolated\.html/, { timeout: 20000, waitUntil: "load" });
+  await g.waitForFunction(() => window.r36sIsolated, null, { timeout: 20000 });
+  const iso = await g.evaluate(() => ({ coi: self.crossOriginIsolated, sab: typeof SharedArrayBuffer, url: location.href, opener: window.opener === null }));
+  await g.waitForFunction(() => window.r36sPlay && window.r36sPlay.started, null, { timeout: 90000 }).catch(() => {});
+  const notice = await es.evaluate(() => document.getElementById("isolated")?.innerText || "");
+  let glit = 0;
+  for (let i = 0; i < 120 && glit < 0.02; i++) { await g.waitForTimeout(1000); glit = await lit(g).catch(() => 0); }
+  await g.screenshot({ path: `${out}/psp-aba.png` });
+  await p.screenshot({ path: `${out}/psp-es-aviso.png` });
+  const st = await g.evaluate(() => ({ started: !!(window.r36sPlay && window.r36sPlay.started), core: window.r36sPlay && window.r36sPlay.core, lazy: window.r36sPlay && window.r36sPlay.lazy,
+    io: window.r36sIsolated.io && window.r36sIsolated.io.stats, inStorage: JSON.stringify({ ...localStorage, ...sessionStorage }).includes("tok-") }));
+  const seedLog = glogs.find(l => /save em árvore: \d+ arquivos/.test(l));
+  // renovação do token pelo canal (o drive.js faz isso no 401): a aba do site responde
+  const renew = await g.evaluate(async () => { const t = await window.r36sIsolated.getToken(true); return { ok: t === "tok-shared", n: window.r36sIsolated.tokenRenewals }; });
+  check(renew.ok && renew.n >= 1, "psp: token renovado pelo BroadcastChannel");
+  step("psp-aba", { ...iso, ...st, glit, notice, seedLog, renew });
+  check(iso.coi === true && iso.sab === "function", "psp: aba isolada com crossOriginIsolated");
+  check(iso.opener && !/tok-/.test(iso.url) && !st.inStorage, "psp: sem opener; token fora da URL e do storage");
+  check(st.started && st.core === "ppsspp", "psp: ppsspp iniciou na aba isolada");
+  check(/PSP abre numa aba própria/.test(notice), "psp: aviso na aba do ES enquanto joga");
+  check(glit > 0.02, "psp: jogo desenhou");
+  check(/save em árvore: 1 arquivos/.test(seedLog || ""), "psp: save semente veio do Drive");
+  // "o jogo grava" no memory stick: um arquivo novo na árvore -> o play.js sobe o blob (PATCH no Drive) em até 2 s
+  await g.evaluate(() => { const FS = window.r36sPlay.module.FS, d = "/home/web_user/retroarch/userdata/saves/PSP/SAVEDATA/R36STEST0";
+    FS.writeFile(d + "/NOVO.BIN", new Uint8Array([1, 2, 3, 4, 5, 6, 7])); }).catch(e => logs.push("psp: FS " + e.message));
+  for (let i = 0; i < 20; i++) { const s = await savesOf(); if (s && s.revisions >= 1) break; await p.waitForTimeout(500); }
+  const up = await savesOf();
+  step("psp-save-put", up);
+  check(up && up.revisions >= 1 && up.size > blob.length && up.parent === "psp", "psp: save do memory stick subiu para o Drive");
+  // saída: Select+Start na aba isolada -> exit pelo canal, a aba fecha, o ES volta
+  const closed = new Promise(r => g.once("close", r));
+  await g.bringToFront();
+  await selectStart(g);
+  const gone = await Promise.race([closed.then(() => true), new Promise(r => setTimeout(() => r(false), 30000))]);
+  await es.waitForFunction(() => !window.r36s.game, null, { timeout: 20000 }).catch(() => {});
+  const last = await es.evaluate(() => window.r36s.lastGame && { code: window.r36s.lastGame.code, why: window.r36s.lastGame.why, isolated: window.r36s.lastGame.isolated, notice: !!document.getElementById("isolated") });
+  await p.bringToFront();
+  await p.waitForTimeout(1500);
+  const esBack = await lit(es);
+  await p.screenshot({ path: `${out}/psp-volta-es.png` });
+  step("psp-saida", { gone, last, esBack });
+  check(gone, "psp: aba isolada fechou sozinha");
+  check(last && last.code === 0 && last.isolated && !last.notice, "psp: ES voltou (código 0, aviso removido)");
+  check(esBack > 0.05, "psp: ES desenha de novo");
+  // de novo: o save com os 2 arquivos vem do Drive
+  const popup2 = c.waitForEvent("page", { timeout: 20000 });
+  await hold(p, "l");
+  const g2 = await popup2;
+  await g2.waitForURL(/isolated\.html/, { timeout: 20000, waitUntil: "load" }).catch(() => {});
+  const g2logs = [];
+  g2.on("console", m => { g2logs.push(m.text()); logs.push(`[aba psp 2] ${m.type()}: ${m.text()}`); });
+  await g2.waitForFunction(() => window.r36sPlay && window.r36sPlay.started, null, { timeout: 90000 }).catch(() => {});
+  const got = g2logs.find(l => /save em árvore: \d+ arquivos/.test(l));
+  step("psp-save-get", { got });
+  check(/save em árvore: 2 arquivos/.test(got || ""), "psp: save voltou do Drive com o arquivo novo");
+  // Voltar pela aba do ES: pede para a aba isolada sair e fechar
+  const closed2 = new Promise(r => g2.once("close", r));
+  await p.bringToFront();
+  await es.click("#isolated button:last-child");
+  const gone2 = await Promise.race([closed2.then(() => true), new Promise(r => setTimeout(() => r(false), 20000))]);
+  const last2 = await es.evaluate(() => window.r36s.lastGame && { code: window.r36s.lastGame.code, why: window.r36s.lastGame.why });
+  step("psp-voltar", { gone2, last2, game: await es.evaluate(() => !!window.r36s.game) });
+  check(gone2 && last2 && /voltou/.test(last2.why || ""), "psp: Voltar na aba do ES fecha a aba isolada");
+  await c.close();
 }

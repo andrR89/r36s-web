@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>R36S — PSP</title>
+<link rel="icon" href="data:,">
+<!-- Player do RetroArch numa aba própria, para núcleos com pthreads (PSP) abertos pelo site: o site não tem COEP (o login
+     do Google quebra com ele), então o iframe do jogo não teria crossOriginIsolated. Esta página é servida com
+     COOP same-origin + COEP require-corp (hub: já é o padrão fora de /r36s/site/; Netlify: dist/_headers).
+     isolated.html?session=<id>&system=psp&core=ppsspp&rom=/roms/psp/<arquivo> — aberta por web/bridge.js; o resto
+     (token do Drive, biblioteca, índice) chega pelo BroadcastChannel "r36s-isolated" (isolated.js). Mesmo player:
+     play.js. -->
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden}
+  #canvas{display:block;margin:auto;height:100%;width:auto;aspect-ratio:4/3;max-width:100%;outline:none}
+  #msg{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;
+       color:#ccc;font:16px system-ui;text-align:center;padding:24px;pointer-events:none}
+  #msg.err{color:#f88}
+  #msg small{color:#888}
+  #sync{position:fixed;right:8px;bottom:6px;color:#f88;font:12px system-ui;display:none}
+</style>
+<canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
+<div id="msg">carregando…</div>
+<div id="sync"></div>
+<script type="module" src="isolated.js"></script>
+</html>
