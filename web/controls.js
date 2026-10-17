@@ -323,42 +323,64 @@ function installTouch(state, { openPanel, siteMode, site }) {
   const orient = () => document.body.classList.toggle("r36s-portrait", innerHeight > innerWidth);
   addEventListener("resize", orient); orient();
 
-  // ponteiros: cada dedo aperta o que está embaixo dele (deslizar troca de botão); direcional por ângulo, 8 direções
+  // ponteiros: cada dedo aperta o que está embaixo dele (deslizar troca de botão); direcional por ângulo, 8 direções.
+  // Tudo isto roda na thread do jogo e o toque do celular manda 120-240 eventos/s: as posições dos botões ficam em cache
+  // (nada de elementFromPoint/getBoundingClientRect por movimento), no máximo um processamento por quadro, e só os
+  // botões que mudaram são tocados no DOM.
   const fingers = new Map();
+  let rects = null;
+  const measure = () => {
+    rects = [];
+    const d = dpad.getBoundingClientRect();
+    rects.push({ dpad: true, l: d.left, t: d.top, r: d.right, b: d.bottom, cx: d.left + d.width / 2, cy: d.top + d.height / 2, w: d.width });
+    for (const e of pad.querySelectorAll("[data-btn]")) {
+      const q = e.getBoundingClientRect();
+      if (q.width) rects.push({ btn: e.dataset.btn, l: q.left, t: q.top, r: q.right, b: q.bottom });
+    }
+  };
+  addEventListener("resize", () => { rects = null; });
   const at = (x, y) => {
-    const e = document.elementFromPoint(x, y);
-    if (!e) return [];
-    const d = e.closest("[data-dpad]");
-    if (d) {
-      const r = d.getBoundingClientRect(), dx = x - (r.left + r.width / 2), dy = y - (r.top + r.height / 2);
-      if (Math.hypot(dx, dy) < r.width * 0.12) return [];
+    if (!rects) measure();
+    for (const q of rects) {
+      if (x < q.l || x > q.r || y < q.t || y > q.b) continue;
+      if (q.btn) return [q.btn];
+      const dx = x - q.cx, dy = y - q.cy;
+      if (Math.hypot(dx, dy) < q.w * 0.12) return [];
       const a = Math.atan2(dy, dx) * 180 / Math.PI, out = [];   // 0 = direita, 90 = baixo
       if (a > -67.5 && a < 67.5) out.push("right"); if (a > 112.5 || a < -112.5) out.push("left");
       if (a > 22.5 && a < 157.5) out.push("down"); if (a < -22.5 && a > -157.5) out.push("up");
       return out;
     }
-    const b = e.closest("[data-btn]");
-    return b ? [b.dataset.btn] : [];
+    return [];
   };
+  const shown = new Map();   // botão -> elemento(s) acesos
+  for (const e of pad.querySelectorAll("[data-btn]")) shown.set(e.dataset.btn, [e]);
+  for (const [c, b] of [["u", "up"], ["d", "down"], ["l", "left"], ["r", "right"]]) shown.set(b, [dpad.querySelector("." + c)]);
   const sync = () => {
     const now = new Set();
     for (const s of fingers.values()) for (const b of s) now.add(b);
     const held = state.touchHeld, game = !!window.r36s.game;
+    if (now.size === held.size && [...now].every(b => held.has(b))) return;   // nada mudou
     // Select+Start no toque, durante o jogo: sai (o player só aceita a combinação de teclas reais)
     if (game && now.has("select") && now.has("start") && !(held.has("select") && held.has("start"))) tap("quit");
-    for (const b of held) if (!now.has(b)) press(b, false);
-    for (const b of now) if (!held.has(b)) press(b, true);
+    for (const b of held) if (!now.has(b)) { press(b, false); for (const e of shown.get(b) || []) e.classList.remove("on"); }
+    for (const b of now) if (!held.has(b)) { press(b, true); for (const e of shown.get(b) || []) e.classList.add("on"); }
     state.touchHeld = now;
-    for (const e of pad.querySelectorAll("[data-btn]")) e.classList.toggle("on", now.has(e.dataset.btn));
-    for (const [c, b] of [["u", "up"], ["d", "down"], ["l", "left"], ["r", "right"]]) dpad.querySelector("." + c).classList.toggle("on", now.has(b));
   };
+  let moved = false;
+  const flush = () => { moved = false; sync(); };
   pad.addEventListener("pointerdown", e => {
     if (e.target.closest(".menu")) return;
     e.preventDefault();
     try { pad.setPointerCapture(e.pointerId); } catch (x) {}
-    fingers.set(e.pointerId, at(e.clientX, e.clientY)); sync();
+    if (!fingers.size) rects = null;   // a cada novo toque, mede de novo (a orientação pode ter mudado)
+    fingers.set(e.pointerId, at(e.clientX, e.clientY)); sync();   // apertar responde na hora
   });
-  pad.addEventListener("pointermove", e => { if (!fingers.has(e.pointerId)) return; fingers.set(e.pointerId, at(e.clientX, e.clientY)); sync(); });
+  pad.addEventListener("pointermove", e => {
+    if (!fingers.has(e.pointerId)) return;
+    fingers.set(e.pointerId, at(e.clientX, e.clientY));
+    if (!moved) { moved = true; requestAnimationFrame(flush); }
+  });
   for (const t of ["pointerup", "pointercancel", "lostpointercapture"]) pad.addEventListener(t, e => { if (fingers.delete(e.pointerId)) sync(); });
   pad.addEventListener("contextmenu", e => e.preventDefault());
 }

@@ -12,6 +12,13 @@ const SAVES_DIR = `${RA}/userdata/saves`;
 const STATES_DIR = `${RA}/userdata/states`;
 const SYSTEM_DIR = "/roms/bios";   // system_directory do retroarch.cfg do dArkOS
 const CORE_OPTS = `${RA}/userdata/retroarch-core-options.cfg`;
+// celular (tela de toque): opções mais leves quando o cartão não define (o N64 do aparelho era o parallel_n64, sem
+// opções do mupen64plus no cartão). 320x240 = resolução nativa do N64 (1/4 dos pixels do padrão 640x480); FrameDuping
+// repete o quadro anterior quando a emulação atrasa, em vez de engasgar.
+const COARSE = matchMedia("(pointer: coarse)").matches;
+const MOBILE_CORE_DEFAULTS = {
+  mupen64plus_next: { "mupen64plus-43screensize": "320x240", "mupen64plus-FrameDuping": "True" },
+};
 const CARD_RA = "../fs/home/ark/.config/retroarch";   // cópia dos cfgs do ROOTFS (data/mkcard.py)
 const SYNC_MS = 2000;
 const EAGER_MAX = 48 << 20;   // ROM até 48 MB: baixa inteira; acima (CHD/ISO): sob demanda
@@ -538,6 +545,7 @@ async function main() {
   const [ovCore, optCore, ovGame, optGame] = cardOverride;
   for (const t of [optCore, optGame]) for (const [k, v] of parseCfg(t)) opts.set(k, v);
   for (const k of [...opts.keys()]) if (CORE_OPT_BLOCK.test(k)) opts.delete(k);
+  for (const [k, v] of Object.entries((COARSE && MOBILE_CORE_DEFAULTS[core]) || {})) if (!opts.has(k)) { opts.set(k, v); log("celular:", k, "=", v); }
   FS.writeFile(CORE_OPTS, [...opts].map(([k, v]) => `${k} = "${v}"`).join("\n") + "\n");
   let cfg = RETROARCH_CFG + RETROARCH_PADS;
   const applied = [];

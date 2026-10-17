@@ -24,6 +24,10 @@ SYMLINKS = {"/etc/emulationstation/themes": "/roms/themes"}
 THEME_EAGER_EXT = {".xml", ".ttf", ".otf", ".svg"}
 # resources/ do ES: tudo eager (pugixml/ifstream leem direto), menos as fontes de fallback CJK grandes (lidas via ResourceManager)
 ES_LAZY_FONT_MIN = 1024 * 1024
+# Modo Drive: cada arquivo lazy é um pedido ao Drive (centenas de ms, em série no ES). As imagens do tema ativo que o ES
+# lê ao abrir e ao trocar de tela vão no pacote (eager.bin); das pastas por sistema, só as dos sistemas do cartão.
+DRIVE_THEME_EAGER_EXT = {".png", ".jpg", ".jpeg", ".svg", ".ttf", ".otf"}
+DRIVE_THEME_PER_SYSTEM = {"posters", "controllers", "sounds"}
 MEDIA_TAGS = {"image", "thumbnail", "marquee", "video", "fanart", "boxart", "wheel", "titleshot", "map", "manual", "cartridge", "mix"}
 
 def read_systems(src):
@@ -171,6 +175,22 @@ def build(src, out, drive_ids=None):
                 if vpath.endswith("/gamelist.xml") and vpath.startswith("/roms/"):
                     refs |= gamelist_refs(real, vroot)
         classify = CardRules(systems, active_theme(src), refs).classify
+    theme = active_theme(src) if systems is not None else None
+    # sistemas com pelo menos um jogo (o es_systems.cfg do dArkOS lista ~100, a maioria vazia)
+    present = set()
+    for prefix, exts in (systems or {}).items():
+        if any(vp.startswith(prefix + "/") and any(vp.endswith(e) for e in exts) for vroot, entries in tree
+               if vroot.startswith(prefix) for vp, _, _ in entries):
+            present.add(os.path.basename(prefix).lower())
+
+    def drive_theme_eager(vpath):
+        if not theme or not vpath.startswith(f"/roms/themes/{theme}/"):
+            return False
+        stem, ext = os.path.splitext(os.path.basename(vpath))
+        if ext.lower() not in DRIVE_THEME_EAGER_EXT:
+            return False
+        parent = os.path.basename(os.path.dirname(vpath))
+        return parent not in DRIVE_THEME_PER_SYSTEM or stem.lower() in present
     dirs, files, off, missing = set(), {}, 0, []
     with open(os.path.join(out, "eager.bin"), "wb") as blob:
         for vroot, entries in tree:
@@ -180,8 +200,8 @@ def build(src, out, drive_ids=None):
                 kind = classify(vpath, size)
                 if kind is None:
                     continue
-                if drive_ids is not None and kind == "lazy" and not vpath.startswith("/roms/"):
-                    kind = "eager"   # fora do Drive: vai no pacote
+                if drive_ids is not None and kind == "lazy" and (not vpath.startswith("/roms/") or drive_theme_eager(vpath)):
+                    kind = "eager"   # fora do Drive, ou imagem do tema que o ES lê na hora: vai no pacote
                 entry = {"size": size, "kind": kind}
                 if kind == "eager":
                     entry["off"] = off

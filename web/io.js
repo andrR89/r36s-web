@@ -9,7 +9,9 @@
 
 const ROOT = new URL("./", import.meta.url);   // web/
 const CACHE = "r36s-drive-v1";
-const PREFETCH = 4;   // capas seguintes da mesma pasta buscadas em segundo plano
+const PREFETCH = 8, PREFETCH_BACK = 3;   // capas da mesma pasta buscadas em segundo plano: seguintes e anteriores
+const PARALLEL = 4;   // downloads de pré-busca ao mesmo tempo (o ES pede um arquivo por vez, em série)
+const SOUNDS_AFTER_MS = 4000;   // depois do boot: sons dos sistemas do tema (o ES toca ao trocar de sistema)
 const IMG = /\.(png|jpe?g|webp|gif|svg)$/i;
 
 const resp = (body, status = 200, headers = {}) => new Response(body, { status, headers });
@@ -61,8 +63,36 @@ export function createIO({ backend, site, preload }) {
     return r;
   }
 
-  // pré-busca: as próximas imagens da mesma pasta (a lista do ES anda em ordem alfabética, como o manifesto)
-  const prefetching = new Set();
+  // fila de pré-busca: PARALLEL downloads por vez, o mais recente primeiro (o cursor andou: o que está perto agora vale mais)
+  const prefetching = new Set(), queue = [];
+  let running = 0;
+  function enqueue(p, front) {
+    if (prefetching.has(p)) return;
+    const e = entryOf(p);
+    if (!e || !e.id || e.kind !== "lazy") return;
+    prefetching.add(p);
+    front ? queue.unshift([p, e]) : queue.push([p, e]);
+    pump();
+  }
+  function pump() {
+    while (running < PARALLEL && queue.length) {
+      const [, e] = queue.shift();
+      running++;
+      cache().then(async c => {
+        if (!c || await c.match(cacheKey(e))) return;
+        const r = await drive.media(e.id);
+        if (r.ok) { await c.put(cacheKey(e), resp(await r.arrayBuffer(), 200)); stats.prefetched++; }
+      }).catch(() => {}).finally(() => { running--; pump(); });
+    }
+  }
+  // sons do tema dos sistemas que existem no cartão (pasta com jogos no manifesto), em segundo plano depois do boot
+  function prefetchSounds() {
+    const present = new Set(manifest.dirs.filter(d => /^\/roms\/[^/]+$/.test(d)).map(d => d.slice(6).toLowerCase()));
+    for (const p of Object.keys(manifest.files))
+      if (/\/sounds\/[^/]+\.(ogg|mp3|wav)$/i.test(p) && present.has(p.slice(p.lastIndexOf("/") + 1).replace(/\.[^.]+$/, "").toLowerCase())) enqueue(p);
+  }
+
+  // pré-busca: as imagens vizinhas da mesma pasta (a lista do ES anda em ordem alfabética, como o manifesto)
   function prefetchAfter(vpath) {
     if (!IMG.test(vpath) || !vpath.startsWith("/roms/")) return;
     if (!byDir) {
@@ -77,16 +107,11 @@ export function createIO({ backend, site, preload }) {
     }
     const list = byDir.get(vpath.slice(0, vpath.lastIndexOf("/"))) || [];
     const i = list.indexOf(vpath);
-    for (const p of list.slice(i + 1, i + 1 + PREFETCH)) {
-      if (prefetching.has(p)) continue;
-      prefetching.add(p);
-      const e = manifest.files[p];
-      cache().then(async c => {
-        if (!c || await c.match(cacheKey(e))) return;
-        const r = await drive.media(e.id);
-        if (r.ok) { await c.put(cacheKey(e), resp(await r.arrayBuffer(), 200)); stats.prefetched++; }
-      }).catch(() => {});
-    }
+    if (i < 0) return;
+    // na frente da fila, da mais perto para a mais longe: 1 seguinte, 1 anterior, 2 seguinte, ...
+    const near = [];
+    for (let k = 1; k <= PREFETCH; k++) { if (list[i + k]) near.push(list[i + k]); if (k <= PREFETCH_BACK && list[i - k]) near.push(list[i - k]); }
+    for (const p of near.reverse()) enqueue(p, true);
   }
 
   // ---- saves ----
@@ -129,6 +154,21 @@ export function createIO({ backend, site, preload }) {
     }
   }
 
+  // índice (manifest.json, eager.bin ~40 MB) em cache por ID + data de modificação: só baixa de novo quando muda
+  async function indexFile(id, version) {
+    const key = `${drive.api}/r36s-cache/index/${id}/${version || ""}`;
+    const c = version ? await cache() : null;
+    const hit = c && await c.match(key).catch(() => null);
+    if (hit) { stats.cached++; return hit; }
+    const r = await drive.media(id);
+    if (!r.ok || !c) return r;
+    const buf = await r.arrayBuffer();
+    // versões antigas deste mesmo arquivo saem do cache (o eager.bin velho ocuparia 40 MB à toa)
+    for (const k of await c.keys().catch(() => [])) if (k.url.includes(`/r36s-cache/index/${id}/`) && k.url !== key) c.delete(k).catch(() => {});
+    c.put(key, resp(buf.slice(0), 200)).catch(() => {});
+    return resp(buf, 200);
+  }
+
   // ---- roteador ----
   async function route(url, init = {}) {
     const rel = relOf(url);
@@ -141,15 +181,16 @@ export function createIO({ backend, site, preload }) {
     // drive
     if (rel === "data/manifest.json") {
       if (!manifest) {
-        const r = await drive.media(library.index.manifest);
+        const r = await indexFile(library.index.manifest, library.index.modifiedTime);
         if (!r.ok) return resp(null, r.status);
         manifest = await r.json();
+        setTimeout(prefetchSounds, SOUNDS_AFTER_MS);
       }
       return resp(JSON.stringify(manifest), 200, { "Content-Type": "application/json" });
     }
     if (rel === "data/eager.bin") {
       if (!eager) {
-        const r = await drive.media(library.index.eager);
+        const r = await indexFile(library.index.eager, library.index.eagerTime);
         if (!r.ok) return resp(null, r.status);
         eager = new Uint8Array(await r.arrayBuffer());
       }

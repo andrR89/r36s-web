@@ -66,7 +66,8 @@ export function createDrive({ api = "https://www.googleapis.com", getToken, peek
     if (!by["manifest.json"] || !by["eager.bin"]) return null;
     let info = null;
     if (by["info.json"]) { try { const r = await req(mediaPath(by["info.json"].id)); if (r.ok) info = await r.json(); } catch (e) {} }
-    return { manifest: by["manifest.json"].id, eager: by["eager.bin"].id, info, modifiedTime: by["manifest.json"].modifiedTime };
+    return { manifest: by["manifest.json"].id, eager: by["eager.bin"].id, info, modifiedTime: by["manifest.json"].modifiedTime,
+      eagerTime: by["eager.bin"].modifiedTime };
   }
 
   // saves: <SAVES_NAME>/<sistema>/<arquivo>, no Drive de quem joga (escopo drive.file: só vê o que o app criou)

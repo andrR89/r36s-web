@@ -5,7 +5,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "data"))
 import mkmanifest
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
-SYSTEMS = """<systemList><system><name>snes</name><path>/roms/snes/</path><extension>.7z .cue</extension></system></systemList>"""
+SYSTEMS = """<systemList><system><name>snes</name><path>/roms/snes/</path><extension>.7z .cue</extension></system>
+<system><name>n64</name><path>/roms/n64/</path><extension>.z64</extension></system></systemList>"""
 
 def touch(root, rel, data=b""):
     p = os.path.join(root, rel.lstrip("/"))
@@ -26,6 +27,10 @@ class DriveIds(unittest.TestCase):
         touch(self.src, "/roms/snes/images/Jogo.png", b"PNG")
         touch(self.src, "/roms/themes/t/theme.xml", b"<theme/>")
         touch(self.src, "/roms/themes/t/bg.jpg", b"JPG")
+        touch(self.src, "/roms/themes/t/_art/posters/snes.jpg", b"JPG")      # sistema com jogos
+        touch(self.src, "/roms/themes/t/_art/posters/n64.jpg", b"JPG")       # no es_systems, mas sem jogos
+        touch(self.src, "/roms/themes/t/_art/assets/sounds/snes.ogg", b"OGG")
+        touch(self.src, "/roms/themes/outro/bg.jpg", b"JPG")                  # tema que não é o ativo
         # a pasta R36S do Drive = /roms; a listagem sai do mock (mesmo formato do rclone lsjson -R --hash)
         ls = subprocess.check_output([sys.executable, "-I", os.path.join(ROOT, "tests", "mock_drive.py"), "--lsjson", os.path.join(self.src, "roms")])
         self.ids = {e["Path"]: e["ID"] for e in json.loads(ls)}
@@ -40,8 +45,15 @@ class DriveIds(unittest.TestCase):
         f = self.m["files"]
         self.assertEqual(f["/roms/snes/Jogo.7z"]["id"], self.ids["snes/Jogo.7z"])
         self.assertEqual(f["/roms/snes/images/Jogo.png"]["id"], self.ids["snes/images/Jogo.png"])
-        self.assertEqual(f["/roms/themes/t/bg.jpg"]["id"], self.ids["themes/t/bg.jpg"])
+        self.assertEqual(f["/roms/themes/outro/bg.jpg"]["id"], self.ids["themes/outro/bg.jpg"])
         self.assertTrue(f["/roms/snes/Jogo.7z"]["v"])   # md5 -> versão do cache
+
+    def test_active_theme_images_in_pack_only_for_present_systems(self):
+        f = self.m["files"]
+        self.assertEqual(f["/roms/themes/t/bg.jpg"]["kind"], "eager")              # o ES lê ao abrir
+        self.assertEqual(f["/roms/themes/t/_art/posters/snes.jpg"]["kind"], "eager")
+        self.assertEqual(f["/roms/themes/t/_art/posters/n64.jpg"]["kind"], "lazy")  # sistema vazio: fica no Drive
+        self.assertEqual(f["/roms/themes/t/_art/assets/sounds/snes.ogg"]["kind"], "lazy")   # som: pré-busca
 
     def test_outside_roms_is_eager(self):
         self.assertEqual(self.m["files"]["/usr/bin/emulationstation/resources/big.ttf"]["kind"], "eager")

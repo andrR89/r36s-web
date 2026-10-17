@@ -79,7 +79,7 @@
 }
 
 /* ---- joystick de toque (tela Celular): paisagem = tela no meio, controles nas laterais; retrato = tela em cima */
-#r36s-touch { position: fixed; inset: 0; z-index: 30; pointer-events: none; font-family: "Space Mono", monospace; touch-action: none;
+#r36s-touch { position: fixed; inset: 0; z-index: 30; pointer-events: none; font-family: "Space Mono", monospace; touch-action: none; contain: layout style;
   -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 #r36s-touch button, #r36s-touch .dpad { pointer-events: auto; touch-action: none; -webkit-tap-highlight-color: transparent; }
 #r36s-touch .tb { position: absolute; color: #fff; font: 700 16px "Space Mono", monospace; padding: 0; }
@@ -102,8 +102,9 @@
 #r36s-touch .pill { position: static; width: 88px; height: 44px; background: rgba(75,58,176,.9); border: 2px solid #6f5ce0; border-radius: 22px; font-size: 12px; font-weight: 400; pointer-events: auto; }
 #r36s-touch .menu { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); width: 44px; height: 44px; background: rgba(27,20,70,.8);
   color: #fff; border: 2px solid #6f5ce0; font: 12px "Press Start 2P", monospace; pointer-events: auto; padding: 0; }
-#r36s-touch .on, #r36s-touch .dpad i.on { filter: brightness(1.5); transform: scale(.94); }
-#r36s-touch .dpad i.on { transform: none; }
+/* aceso: só opacidade (sem filter/transform, que repintam por cima do canvas do jogo a cada toque) */
+#r36s-touch .tb, #r36s-touch .dpad i { opacity: .82; }
+#r36s-touch .on, #r36s-touch .dpad i.on { opacity: 1; }
 body.r36s-touch #r36s-help { display: none; }   /* no toque, "?" fica no menu ≡ */
 body.r36s-touch #r36s-badges, body.r36s-touch #r36s-toast { right: 50%; transform: translateX(50%); top: 60px; }
 body.r36s-touch #r36s-toast:not(.show) + #r36s-badges { top: 60px; }
