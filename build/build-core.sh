@@ -32,6 +32,9 @@ case "$name" in
     repo=https://github.com/EmulatorJS/ppsspp.git; commit=fa917ebd212e083912d742c830eecb242b6a98ae; mk=Makefile; dir=libretro
     custom=ppsspp
     RA_ARGS="ASYNC=1 HAVE_THREADS=1 PTHREAD_POOL_SIZE=32 HAVE_OPENGLES3=1 INITIAL_HEAP=536870912" ;;
+  easyrpg)   # EasyRPG Player (PLAYER_TARGET_PLATFORM=libretro, CMake) + deps de build/build-easyrpg-deps.sh
+    repo=https://github.com/EasyRPG/Player.git; commit=0de2a9ab466a133ac6e192a84bd761a1d81f5f14; custom=easyrpg
+    RA_ARGS="INITIAL_HEAP=268435456" ;;
   *) echo "núcleo desconhecido: $name" >&2; exit 2 ;;
 esac
 src="$B/$name"
@@ -50,6 +53,8 @@ if [ ! -d "$src/.git" ]; then
     sed -i 's/^int32_t path_get_size(const char \*path)/int64_t path_get_size(const char *path)/' \
       "$src/libretro/libretro-common/include/file/file_path.h" "$src/libretro/libretro-common/file/file_path_io.c"
     rm -rf "$src/ext/armips/ext/filesystem"; git clone -q --depth 1 https://github.com/gulrak/filesystem.git "$src/ext/armips/ext/filesystem"
+  elif [ "$custom" = easyrpg ]; then
+    git -C "$src" submodule update -q --init --depth 1 builds/libretro/libretro-common
   else
     git -C "$src" submodule update -q --init --recursive
   fi
@@ -63,8 +68,28 @@ fi
 git -C "$B/retroarch" checkout -q "$RA_COMMIT"
 
 echo "== núcleo $name"
-( cd "$src/$dir" && emmake make -j"$JOBS" -f "$mk" platform=emscripten $args )
-lib=$(ls -t "$src/$dir"/*_libretro_emscripten.{bc,a} 2>/dev/null | head -1 || true)
+if [ "$custom" = easyrpg ]; then
+  bash "$R/build/build-easyrpg-deps.sh"
+  # o Player trata __EMSCRIPTEN__ como "web player oficial" (Emscripten_Interface, async_handler baixando arquivos...);
+  # no núcleo libretro isso vira EASYRPG_WEB_PLAYER (nunca definido): patches/cores/easyrpg.patch
+  P="$B/easyrpg-prefix"; SYS="$(em-config CACHE)/sysroot"; L="$SYS/lib/wasm32-emscripten"
+  off=""; for o in FREETYPE HARFBUZZ LHASA MPG123 LIBSNDFILE OGGVORBIS OPUS WILDMIDI FLUIDSYNTH FLUIDLITE XMP SPEEXDSP SAMPLERATE; do off="$off -DPLAYER_WITH_$o=OFF"; done
+  PKG_CONFIG_PATH="$P/lib/pkgconfig" emcmake cmake -S "$src" -B "$src/b" -DCMAKE_BUILD_TYPE=Release -DPLAYER_TARGET_PLATFORM=libretro \
+    -DBUILD_SHARED_LIBS=OFF -DCMAKE_PREFIX_PATH="$P" -DCMAKE_FIND_ROOT_PATH="$P;$SYS" \
+    -DPNG_LIBRARY="$L/libpng.a" -DPNG_PNG_INCLUDE_DIR="$SYS/include" -DZLIB_LIBRARY="$L/libz.a" -DZLIB_INCLUDE_DIR="$SYS/include" \
+    -DPIXMAN_INCLUDE_DIR="$P/include/pixman-1" -DPIXMAN_LIBRARY="$P/lib/libpixman-1.a" $off -DPLAYER_ENABLE_TESTS=OFF >/dev/null
+  cmake --build "$src/b" -j"$JOBS"
+  # núcleo + Player + dependências num .a só (o Makefile.emscripten liga um arquivo; zlib vem do RetroArch)
+  lib="$src/b/easyrpg_merged.a"; rm -f "$lib"
+  { echo "create $lib"
+    for a in "$src/b/easyrpg_libretro.a" "$src/b/builds/libretro/libretro_common.a" \
+             "$P/lib/liblcf.a" "$P/lib/libfmt.a" "$P/lib/libinih.a" "$P/lib/libpixman-1.a" "$L/libpng.a"; do
+      [ -f "$a" ] && echo "addlib $a" || echo "AVISO: falta $a" >&2; done
+    echo save; echo end; } | emar -M
+else
+  ( cd "$src/$dir" && emmake make -j"$JOBS" -f "$mk" platform=emscripten $args )
+  lib=$(ls -t "$src/$dir"/*_libretro_emscripten.{bc,a} 2>/dev/null | head -1 || true)
+fi
 [ -n "$lib" ] || { echo "sem .a/.bc do núcleo" >&2; exit 1; }
 if [ "$custom" = ppsspp ]; then   # núcleo + ffmpeg num .a só (o Makefile.emscripten liga um arquivo)
   rm -f "$B/retroarch/libretro_emscripten.a"

@@ -1,0 +1,505 @@
+diff --git a/src/async_handler.cpp b/src/async_handler.cpp
+index 097416f..541a482 100644
+--- a/src/async_handler.cpp
++++ b/src/async_handler.cpp
+@@ -19,7 +19,7 @@
+ #include <fstream>
+ #include <map>
+ 
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ #  include <emscripten.h>
+ #  include <lcf/reader_util.h>
+ #  include <nlohmann/json.hpp>
+@@ -45,7 +45,7 @@ namespace {
+ 	std::unordered_map<std::string, FileRequestAsync> async_requests;
+ 	std::unordered_map<std::string, std::string> file_mapping;
+ 	int next_id = 0;
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 	int index_version = 1;
+ #endif
+ 
+@@ -69,7 +69,7 @@ namespace {
+ 		return std::make_shared<int>(next_id++);
+ 	}
+ 
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 	constexpr size_t ASYNC_MAX_RETRY_COUNT{ 16 };
+ 
+ 	struct async_download_context {
+@@ -140,7 +140,7 @@ namespace {
+ }
+ 
+ void AsyncHandler::CreateRequestMapping(const std::string& file) {
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 	auto f = FileFinder::Game().OpenInputStream(file);
+ 	if (!f) {
+ 		Output::Error("Emscripten: Reading index.json failed");
+@@ -263,7 +263,7 @@ bool AsyncHandler::IsFilePending(bool important, bool graphic) {
+ }
+ 
+ void AsyncHandler::SaveFilesystem() {
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 	// Save changed file system
+ 	EM_ASM({
+ 		FS.syncfs(function(err) {
+@@ -321,7 +321,7 @@ void FileRequestAsync::Start() {
+ 
+ 	state = State_Pending;
+ 
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 	std::string request_path;
+ #  ifdef EM_GAME_URL
+ 	request_path = EM_GAME_URL;
+@@ -393,7 +393,7 @@ void FileRequestAsync::Start() {
+ }
+ 
+ void FileRequestAsync::UpdateProgress() {
+-#ifndef __EMSCRIPTEN__
++#ifndef EASYRPG_WEB_PLAYER
+ 	// Fake download for testing event handlers
+ 
+ 	if (!IsReady() && Rand::ChanceOf(1, 100)) {
+@@ -440,7 +440,7 @@ void FileRequestAsync::DownloadDone(bool success) {
+ 	}
+ 
+ 	if (success) {
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 		if (state == State_Pending) {
+ 			// Update directory structure (new file was added)
+ 			if (FileFinder::Game()) {
+diff --git a/src/exe_reader.cpp b/src/exe_reader.cpp
+index 0338701..93b1684 100644
+--- a/src/exe_reader.cpp
++++ b/src/exe_reader.cpp
+@@ -15,9 +15,9 @@
+  * along with EasyRPG Player. If not, see <http://www.gnu.org/licenses/>.
+  */
+ 
+-// All of this code is unused on EMSCRIPTEN. *Do not use it*!
++// All of this code is unused on EASYRPG_WEB_PLAYER. *Do not use it*!
+ 
+-#ifndef __EMSCRIPTEN__
++#ifndef EASYRPG_WEB_PLAYER
+ 
+ #include "exe_reader.h"
+ #include "image_bmp.h"
+diff --git a/src/filefinder_rtp.cpp b/src/filefinder_rtp.cpp
+index 73c739d..cf518ca 100644
+--- a/src/filefinder_rtp.cpp
++++ b/src/filefinder_rtp.cpp
+@@ -32,7 +32,7 @@
+ #endif
+ 
+ FileFinder_RTP::FileFinder_RTP(bool no_rtp, bool no_rtp_warnings, std::string rtp_path) {
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 	// No RTP support for emscripten at the moment.
+ 	disable_rtp = true;
+ #else
+diff --git a/src/game_config.cpp b/src/game_config.cpp
+index a5b493b..8f706e1 100644
+--- a/src/game_config.cpp
++++ b/src/game_config.cpp
+@@ -112,7 +112,7 @@ Game_Config Game_Config::Create(CmdlineParser& cp) {
+ 	cfg.input.gamepad_swap_ab_and_xy.Set(true);
+ #endif
+ 
+-#if defined(USE_CUSTOM_FILEBUF) || defined(USE_LIBRETRO) || defined(__EMSCRIPTEN__)
++#if defined(USE_CUSTOM_FILEBUF) || defined(USE_LIBRETRO) || defined(EASYRPG_WEB_PLAYER)
+ 	// Disable logging to file by default on
+ 	// - platforms with slow IO or bad FS drivers
+ 	// - libretro because the frontend handles the logging
+diff --git a/src/game_destiny.cpp b/src/game_destiny.cpp
+index c0d5631..2e99d6a 100644
+--- a/src/game_destiny.cpp
++++ b/src/game_destiny.cpp
+@@ -19,9 +19,9 @@
+ #include "game_destiny.h"
+ #include "filefinder.h"
+ 
+-#ifndef __EMSCRIPTEN__
++#ifndef EASYRPG_WEB_PLAYER
+ #include "exe_reader.h"
+-#endif // !__EMSCRIPTEN__
++#endif // !EASYRPG_WEB_PLAYER
+ #include "output.h"
+ 
+ using Destiny::InterpretFlag;
+@@ -52,7 +52,7 @@ void Game_Destiny::Load()
+ 	uint32_t floatSize = 0;
+ 	uint32_t stringSize = 0;
+ 
+-#ifndef __EMSCRIPTEN__
++#ifndef EASYRPG_WEB_PLAYER
+ 	Filesystem_Stream::InputStream exe = FileFinder::Game().OpenFile(EXE_NAME);
+ 
+ 	if (exe)
+@@ -80,7 +80,7 @@ void Game_Destiny::Load()
+ 	gameVersion = 0x20000107;
+ 	extra = 0x01;
+ 	dwordSize = floatSize = stringSize = 0x64;
+-#endif // !__EMSCRIPTEN__
++#endif // !EASYRPG_WEB_PLAYER
+ 
+ 	Initialize(dllVersion, language, gameVersion, extra, dwordSize, floatSize, stringSize);
+ }
+diff --git a/src/game_interpreter.h b/src/game_interpreter.h
+index 60eedc8..f564e93 100644
+--- a/src/game_interpreter.h
++++ b/src/game_interpreter.h
+@@ -52,7 +52,7 @@ public:
+ 	static Game_Interpreter& GetForegroundInterpreter();
+ 
+ 	Game_Interpreter(bool _main_flag = false);
+-#ifndef __EMSCRIPTEN__
++#ifndef EASYRPG_WEB_PLAYER
+ 	// No idea why but emscripten will complain about a missing destructor when
+ 	// using virtual here
+ 	virtual
+diff --git a/src/game_map.cpp b/src/game_map.cpp
+index b4acc5b..bf8fe45 100644
+--- a/src/game_map.cpp
++++ b/src/game_map.cpp
+@@ -2018,7 +2018,7 @@ std::string Game_Map::ConstructMapName(int map_id, bool is_easyrpg) {
+ }
+ 
+ FileRequestAsync* Game_Map::RequestMap(int map_id) {
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 	Player::translation.RequestAndAddMap(map_id);
+ #endif
+ 
+diff --git a/src/graphics.cpp b/src/graphics.cpp
+index f19c4b0..291bdec 100644
+--- a/src/graphics.cpp
++++ b/src/graphics.cpp
+@@ -76,7 +76,7 @@ void Graphics::UpdateTitle() {
+ 		return;
+ 	}
+ 
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 	return;
+ #else
+ 	std::string fps;
+diff --git a/src/output.cpp b/src/output.cpp
+index 71990d3..1488a90 100644
+--- a/src/output.cpp
++++ b/src/output.cpp
+@@ -26,7 +26,7 @@
+ #include <chrono>
+ #include <fmt/color.h>
+ #include <fmt/ostream.h>
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ #  include "platform/emscripten/interface.h"
+ #endif
+ 
+@@ -137,7 +137,7 @@ void Output::SetLogCallback(LogCallbackFn fn, LogCallbackUserData userdata) {
+ 
+ static void WriteLog(LogLevel lvl, std::string const& msg, Color const& c = Color()) {
+ // skip writing log file
+-#ifndef __EMSCRIPTEN__
++#ifndef EASYRPG_WEB_PLAYER
+ 	std::string prefix = Output::LogLevelToString(lvl) + ": ";
+ 
+ 	// Every new message is written once to the file.
+@@ -198,7 +198,7 @@ void Output::Quit() {
+ }
+ 
+ bool Output::TakeScreenshot(bool is_auto_screenshot) {
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 	Emscripten_Interface::TakeScreenshot(is_auto_screenshot);
+ 	return true;
+ #else
+@@ -286,7 +286,7 @@ void Output::ErrorStr(std::string const& err) {
+ #if defined (PLAYER_NINTENDO) || defined(__vita__)
+ 		// stdin is non-blocking
+ 		Game_Clock::SleepFor(5s);
+-#elif defined (__EMSCRIPTEN__)
++#elif defined (EASYRPG_WEB_PLAYER)
+ 		// Don't show JavaScript Window.prompt from stdin call
+ 		std::cout << " Process finished.";
+ #else
+diff --git a/src/platform/clock.h b/src/platform/clock.h
+index 94fc5f3..2d98f5b 100644
+--- a/src/platform/clock.h
++++ b/src/platform/clock.h
+@@ -34,7 +34,7 @@ using Platform_Clock = NxClock;
+ #elif defined(__vita__)
+ #include "platform/psvita/clock.h"
+ using Platform_Clock = Psp2Clock;
+-#elif defined(__EMSCRIPTEN__)
++#elif defined(EASYRPG_WEB_PLAYER)
+ #include "platform/emscripten/clock.h"
+ using Platform_Clock = EmscriptenClock;
+ #elif defined(USE_LIBRETRO)
+diff --git a/src/player.cpp b/src/player.cpp
+index 6656c9d..658dc74 100644
+--- a/src/player.cpp
++++ b/src/player.cpp
+@@ -27,7 +27,7 @@
+ #ifdef _WIN32
+ #  include "platform/windows/utils.h"
+ #  include <windows.h>
+-#elif defined(__EMSCRIPTEN__)
++#elif defined(EASYRPG_WEB_PLAYER)
+ #  include <emscripten.h>
+ #endif
+ 
+@@ -90,7 +90,7 @@
+ #include "platform/android/android.h"
+ #endif
+ 
+-#ifndef __EMSCRIPTEN__
++#ifndef EASYRPG_WEB_PLAYER
+ // This is not used on Emscripten.
+ #include "exe_reader.h"
+ #endif
+@@ -139,7 +139,7 @@ namespace Player {
+ 	int frame_draw_accumulator = 0;
+ 	int frame_draw_percentage = 100;
+ 
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 	std::string emscripten_game_name;
+ #endif
+ 	Game_Clock::time_point last_auto_screenshot;
+@@ -221,7 +221,7 @@ void Player::Run() {
+ 	Game_Clock::ResetFrame(Game_Clock::now());
+ 
+ 	// Main loop
+-#if defined(USE_LIBRETRO) || defined(__EMSCRIPTEN__)
++#if defined(USE_LIBRETRO) || defined(EASYRPG_WEB_PLAYER)
+ 	// emscripten implemented in main.cpp
+ 	// libretro invokes the MainLoop through a retro_run-callback
+ #else
+@@ -429,7 +429,7 @@ void Player::Exit() {
+ 	}
+ 
+ 	Graphics::UpdateSceneCallback();
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 	BitmapRef surface = DisplayUi->GetDisplaySurface();
+ 	std::string message = "It's now safe to turn off\n      your browser.";
+ 	DisplayUi->CleanDisplay();
+@@ -697,7 +697,7 @@ Game_Config Player::ParseCommandLine() {
+ 			exit(0);
+ 			break;
+ 		}
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 		if (cp.ParseNext(arg, 1, "--game")) {
+ 			if (arg.NumValues() > 0) {
+ 				emscripten_game_name = arg.Value(0);
+@@ -796,7 +796,7 @@ void Player::CreateGameObjects() {
+ 	int& engine = game_config.engine;
+ 	std::unordered_map<Game_Constants::ConstantType, int32_t> game_constant_overrides;
+ 
+-#ifndef __EMSCRIPTEN__
++#ifndef EASYRPG_WEB_PLAYER
+ 	// Attempt reading ExFont and version information from RPG_RT.exe (not supported on Emscripten)
+ 	std::unique_ptr<EXEReader> exe_reader;
+ 	const auto exe_file = game_config.engine_path.Get().empty() ? EXE_NAME : game_config.engine_path.Get();
+@@ -1385,7 +1385,7 @@ std::string Player::GetEncoding() {
+ 			if (db) {
+ 				std::vector<std::string> encodings = lcf::ReaderUtil::DetectEncodings(*db);
+ 
+-#ifndef __EMSCRIPTEN__
++#ifndef EASYRPG_WEB_PLAYER
+ 				for (std::string &enc : encodings) {
+ 					// Heuristic: Check title graphic, system graphic, cursor SE, title BGM
+ 					// Pure ASCII is skipped as it provides no added value
+diff --git a/src/player.h b/src/player.h
+index f6785f1..f136123 100644
+--- a/src/player.h
++++ b/src/player.h
+@@ -437,7 +437,7 @@ namespace Player {
+ 	 */
+ 	void SetFrameSkip(int percentage);
+ 
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 	/** Name of game emscripten uses */
+ 	extern std::string emscripten_game_name;
+ #endif
+diff --git a/src/scene_file.cpp b/src/scene_file.cpp
+index bd24956..8cb2972 100644
+--- a/src/scene_file.cpp
++++ b/src/scene_file.cpp
+@@ -31,7 +31,7 @@
+ #include <lcf/reader_util.h>
+ #include "output.h"
+ 
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ #  include <emscripten.h>
+ #  include "platform/emscripten/interface.h"
+ #endif
+@@ -148,7 +148,7 @@ void Scene_File::Start() {
+ 	}
+ 
+ 	std::vector<std::string> commands;
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 	commands.emplace_back("Download Savegame");
+ 	commands.emplace_back("Upload Savegame");
+ #endif
+@@ -200,7 +200,7 @@ void Scene_File::vUpdate() {
+ 			Main_Data::game_system->SePlay(Main_Data::game_system->GetSystemSE(Main_Data::game_system->SFX_Buzzer));
+ 		}
+ 	} else if (Input::IsTriggered(Input::SHIFT)) {
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 		extra_commands_window->SetX(SCREEN_TARGET_WIDTH - extra_commands_window->GetWidth() - 8);
+ 		extra_commands_window->SetY(file_windows[index]->GetY() + 8);
+ 		extra_commands_window->SetItemEnabled(0, file_windows[index]->IsValid() && file_windows[index]->HasParty());
+@@ -297,7 +297,7 @@ bool Scene_File::HandleExtraCommandsWindow() {
+ 
+ 	extra_commands_window->Update();
+ 
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 	if (Input::IsTriggered(Input::DECISION)) {
+ 		if (extra_commands_window->GetIndex() == 0) {
+ 			// Download
+diff --git a/src/scene_logo.cpp b/src/scene_logo.cpp
+index 47f5f37..afb11dc 100644
+--- a/src/scene_logo.cpp
++++ b/src/scene_logo.cpp
+@@ -131,7 +131,7 @@ bool Scene_Logo::DetectGame() {
+ 		FileFinder::SetGameFilesystem(fs);
+ 	}
+ 
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 	static bool once = true;
+ 	if (once) {
+ 		FileRequestAsync* index = AsyncHandler::RequestFile("index.json");
+@@ -225,7 +225,7 @@ std::vector<std::vector<uint8_t>> Scene_Logo::LoadLogos() {
+ 		}
+ 	}
+ 
+-#ifndef __EMSCRIPTEN__
++#ifndef EASYRPG_WEB_PLAYER
+ 	if (logos.empty()) {
+ 		// Attempt reading Logos from RPG_RT.exe (not supported on Emscripten)
+ 		auto exeis = FileFinder::Game().OpenFile(EXE_NAME);
+diff --git a/src/scene_save.cpp b/src/scene_save.cpp
+index 588638e..a6306f7 100644
+--- a/src/scene_save.cpp
++++ b/src/scene_save.cpp
+@@ -18,7 +18,7 @@
+ // Headers
+ #include "game_constants.h"
+ 
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ #  include <emscripten.h>
+ #endif
+ 
+diff --git a/src/scene_settings.cpp b/src/scene_settings.cpp
+index 70909d9..71bca2e 100644
+--- a/src/scene_settings.cpp
++++ b/src/scene_settings.cpp
+@@ -40,7 +40,7 @@
+ #include "window_settings.h"
+ #include <memory>
+ 
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ #  include <emscripten.h>
+ #endif
+ 
+diff --git a/src/system.h b/src/system.h
+index 0f8a4e2..1b43196 100644
+--- a/src/system.h
++++ b/src/system.h
+@@ -44,7 +44,7 @@
+ #  define SUPPORT_JOYSTICK
+ #  define SUPPORT_JOYSTICK_AXIS
+ #  define SUPPORT_TOUCH
+-#elif defined(__EMSCRIPTEN__)
++#elif defined(EASYRPG_WEB_PLAYER)
+ #  define SUPPORT_MOUSE
+ #  define SUPPORT_TOUCH
+ #  define SUPPORT_JOYSTICK
+diff --git a/src/window_gamelist.cpp b/src/window_gamelist.cpp
+index 613c45b..5633a4b 100644
+--- a/src/window_gamelist.cpp
++++ b/src/window_gamelist.cpp
+@@ -55,7 +55,7 @@ bool Window_GameList::Refresh(FilesystemView filesystem_base, bool show_dotdot)
+ #endif
+ 		assert(!dir.second.name.empty() && "VFS BUG: Empty filename in the folder");
+ 
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 		if (dir.second.name == "Save") {
+ 			continue;
+ 		}
+@@ -159,7 +159,7 @@ void Window_GameList::DrawItem(int index) {
+ 
+ void Window_GameList::DrawErrorText(bool show_dotdot) {
+ 	std::vector<std::string> error_msg = {
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 		"Did you type in a wrong URL?",
+ 		"",
+ 		"If you think this is an error, contact the owner",
+@@ -183,7 +183,7 @@ void Window_GameList::DrawErrorText(bool show_dotdot) {
+ 
+ 	int y = (show_dotdot ? 4 + 14 : 0);
+ 
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 	contents->TextDraw(0, y, Font::ColorKnockout, "The game was not found.");
+ #else
+ 	contents->TextDraw(0, y, Font::ColorKnockout, "No games found in the current directory.");
+diff --git a/src/window_settings.cpp b/src/window_settings.cpp
+index 305fd9c..58ca5a2 100644
+--- a/src/window_settings.cpp
++++ b/src/window_settings.cpp
+@@ -35,7 +35,7 @@
+ #include "audio_midi.h"
+ #include "audio_generic_midiout.h"
+ 
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ #  include "platform/emscripten/interface.h"
+ #endif
+ 
+@@ -380,7 +380,7 @@ void Window_Settings::RefreshAudioSoundfont() {
+ 		opt.help2 = "Changes take effect when a new MIDI file is played";
+ 	}
+ 
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 	AddOption(MenuItem("<Upload Soundfont>", "Provide a soundfont from your system", ""), [fs]() { Emscripten_Interface::UploadSoundfont(); });
+ #elif defined(SUPPORT_FILE_BROWSER)
+ 	AddOption(MenuItem("<Open Soundfont directory>", "Open the soundfont directory in a file browser", ""), [fs]() { DisplayUi->OpenURL(fs.GetFullPath()); });
+@@ -530,7 +530,7 @@ void Window_Settings::RefreshEngineFont(bool mincho) {
+ 	});
+ 	set_help2();
+ 
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 	AddOption(MenuItem("<Upload Font>", "Provide a font from your system", ""), [fs]() { Emscripten_Interface::UploadFont(); });
+ #elif defined(SUPPORT_FILE_BROWSER)
+ 	AddOption(MenuItem("<Open Font directory>", "Open the font directory in a file browser", ""), [fs]() { DisplayUi->OpenURL(fs.GetFullPath()); });
+@@ -620,7 +620,7 @@ void Window_Settings::RefreshLicense() {
+ #ifdef WANT_FONT_WQY
+ 	AddOption(MenuItem("WenQuanYi", "WenQuanYi font family (CJK)", "GPLv2+ with FE"), [](){});
+ #endif
+-#ifdef __EMSCRIPTEN__
++#ifdef EASYRPG_WEB_PLAYER
+ 	AddOption(MenuItem("Teenyicons", "Tiny minimal 1px icons", "MIT"), [](){});
+ #endif
+ }

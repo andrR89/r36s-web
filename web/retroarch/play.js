@@ -212,7 +212,7 @@ async function pump() {
   } finally { sync.busy = false; }
 }
 
-// Save em árvore (PSP: memory stick em savefile_directory/PSP/SAVEDATA/<jogo>/...): o servidor guarda um arquivo por
+// Save em árvore (PSP: memory stick em savefile_directory/PSP/SAVEDATA/<jogo>/...; EasyRPG: <rom>.save/Save01.lsd...): o servidor guarda um arquivo por
 // jogo, então a árvore vai empacotada num blob só (<rom>.savedata): "R36T1\n" + por arquivo uma linha JSON {p,n} + n bytes.
 let saveTree = null;   // caminho no MEMFS (cores.json "saveTree", relativo a SAVES_DIR)
 function packTree(FS, root) {
@@ -389,7 +389,8 @@ async function main() {
   if (!core) return fatal("sistema sem emulador no navegador", sys ? `${sys.fullname || system}: ${sys.note || ""}` : system);
   state.core = core;
   if (sys && sys.saveExt) setSaveName(sys.saveExt);
-  if (sys && sys.saveTree) { saveTree = `${SAVES_DIR}/${sys.saveTree}`; setSaveName(".savedata"); }
+  // "{rom}" = caminho da ROM (EasyRPG grava em <rom>.save/ ao lado do .zip, que é só leitura); senão relativo a SAVES_DIR
+  if (sys && sys.saveTree) { saveTree = sys.saveTree.includes("{rom}") ? sys.saveTree.replace("{rom}", rom) : `${SAVES_DIR}/${sys.saveTree}`; setSaveName(".savedata"); }
 
   // 1. save pendente de uma sessão anterior que não subiu: reenvia antes de tudo
   const pending = await pendingGet();
