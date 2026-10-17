@@ -20,5 +20,7 @@
 <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
 <div id="msg">carregando…</div>
 <div id="sync"></div>
+<!-- dentro do ES: a página do ES decide quem é P1/P2 (web/controls.js reordena navigator.getGamepads() aqui) -->
+<script>try { if (parent !== window && parent.r36sPads) parent.r36sPads.install(window); } catch (e) {}</script>
 <script type="module" src="play.js"></script>
 </html>

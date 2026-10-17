@@ -73,7 +73,7 @@ export function notice(text, sub, ms = 3000) {
 // Foco no ES: o SDL escuta o teclado no #canvas. Ao carregar, ao clicar em qualquer lugar e ao voltar para a aba,
 // o canvas recebe o foco; uma tecla apertada com o foco fora dele é repassada (senão a primeira tecla se perde).
 export function keepFocus(canvas) {
-  const active = () => !window.r36s.game;
+  const active = () => !window.r36s.game && !(window.r36s.controls && window.r36s.controls.panel);   // painel de comandos aberto: foco nele
   const focus = () => { if (active() && document.activeElement !== canvas) canvas.focus(); };
   addEventListener("pointerdown", () => setTimeout(focus, 0));
   addEventListener("focus", focus);

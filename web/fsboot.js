@@ -1,5 +1,6 @@
 // Monta o FS virtual do ES a partir de data/manifest.json + data/eager.bin (contrato: data/mkmanifest.py)
-export async function bootFS(Module) {
+// fetch: o do navegador (hub) ou o do backend do site (web/io.js: drive/demo), com as mesmas URLs relativas
+export async function bootFS(Module, fetch = globalThis.fetch.bind(globalThis)) {
   const [manifest, blob] = await Promise.all([
     fetch("data/manifest.json").then(r => r.json()),
     fetch("data/eager.bin").then(r => r.arrayBuffer()).then(b => new Uint8Array(b)),

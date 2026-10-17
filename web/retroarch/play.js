@@ -26,6 +26,11 @@ const msg = document.getElementById("msg");
 const syncEl = document.getElementById("sync");
 const canvas = document.getElementById("canvas");
 const log = (...a) => console.log("[play]", ...a);
+// E/S: no hub, fetch/XHR do navegador (../fs, ../saves, ../data). Dentro do site (backend drive/demo) o player usa o
+// backend da página do ES (web/io.js), que traduz essas mesmas URLs; nada mais muda aqui entre os backends.
+const io = (() => { try { return embedded && parent.r36s && parent.r36s.io; } catch (e) { return null; } })();
+const fetch = io ? io.fetchFrom(location.href) : globalThis.fetch.bind(globalThis);
+const XMLHttpRequest = io ? io.xhrFrom(location.href) : globalThis.XMLHttpRequest;
 const state = { module: null, finished: false, started: false };
 window.r36sPlay = state;   // inspeção nos testes
 
@@ -108,7 +113,23 @@ input_ai_service = "nul"
 input_osk_toggle = "nul"
 input_fps_toggle = "nul"
 input_close_content = "nul"
+input_joypad_driver = "rwebpad"
+input_player1_joypad_index = "0"
+input_player2_joypad_index = "1"
 `;
+// Controles físicos (Gamepad API, mapeamento "standard"), pela POSIÇÃO do botão como no R36S: baixo = B, direita = A,
+// esquerda = Y, cima = X, LB/RB = L/R, LT/RT = L2/R2, View/Back = Select, Menu/Start = Start (Select+Start sai: combo 4).
+// Quem é P1/P2 decide a página do ES (web/controls.js): ela reordena navigator.getGamepads() dentro deste iframe
+// (play.html), então os índices daqui são fixos (0 = P1, 1 = P2). P2 também tem teclas (teclado numérico), usadas só
+// quando o teclado vira o Jogador 2 (troca com Start+Select no ES, 1 controle + teclado).
+const PAD_BUTTONS = { b: 0, a: 1, y: 2, x: 3, l: 4, r: 5, l2: 6, r2: 7, select: 8, start: 9, l3: 10, r3: 11, up: 12, down: 13, left: 14, right: 15 };
+const PAD_AXES = { l_x_plus: "+0", l_x_minus: "-0", l_y_plus: "+1", l_y_minus: "-1", r_x_plus: "+2", r_x_minus: "-2", r_y_plus: "+3", r_y_minus: "-3" };
+const P2_KEYS = { up: "keypad8", down: "keypad2", left: "keypad4", right: "keypad6", a: "keypad3", b: "keypad1", x: "keypad9", y: "keypad7",
+  l: "kp_divide", r: "kp_multiply", l2: "kp_minus", r2: "kp_plus", start: "kp_enter", select: "kp_period" };
+const RETROARCH_PADS = [1, 2].map(n =>
+  Object.entries(PAD_BUTTONS).map(([k, v]) => `input_player${n}_${k}_btn = "${v}"\n`).join("") +
+  Object.entries(PAD_AXES).map(([k, v]) => `input_player${n}_${k}_axis = "${v}"\n`).join("")).join("") +
+  Object.entries(P2_KEYS).map(([k, v]) => `input_player2_${k} = "${v}"\n`).join("");
 
 function show(text, sub, err) {
   msg.className = err ? "err" : "";
@@ -439,7 +460,7 @@ async function main() {
   for (const t of [optCore, optGame]) for (const [k, v] of parseCfg(t)) opts.set(k, v);
   for (const k of [...opts.keys()]) if (CORE_OPT_BLOCK.test(k)) opts.delete(k);
   FS.writeFile(CORE_OPTS, [...opts].map(([k, v]) => `${k} = "${v}"`).join("\n") + "\n");
-  let cfg = RETROARCH_CFG;
+  let cfg = RETROARCH_CFG + RETROARCH_PADS;
   const applied = [];
   for (const t of [ovCore, ovGame]) for (const [k, v] of parseCfg(t)) if (!OVERRIDE_BLOCK.test(k)) { cfg += `${k} = "${v}"\n`; applied.push(k); }
   if (applied.length) log("overrides do cartão:", applied.join(", "));

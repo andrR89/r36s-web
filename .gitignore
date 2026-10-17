@@ -3,7 +3,7 @@ saves/
 src/
 .superpowers/
 card-sample/
-web/data/
+web/data
 web/fs
 __pycache__/
 build/es-out/
