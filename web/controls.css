@@ -65,6 +65,18 @@
   #r36s-panel .hands { grid-template-columns: 1fr; }
   #r36s-panel dl.extra { grid-template-columns: auto 1fr; }
 }
+/* celular deitado (412 px de altura): o painel não cabe — compacto, texto rola e o "Jogar" fica sempre à vista */
+#r36s-panel .foot { position: sticky; bottom: 0; background: var(--ink); }
+@media (max-height: 560px) {
+  #r36s-panel { padding: 8px; }
+  #r36s-panel .box { padding: 14px 20px 0; gap: 12px; box-shadow: 6px 6px 0 var(--pink); }
+  #r36s-panel h1 { font-size: 14px; }
+  #r36s-panel .tabs button { padding: 4px 10px; }
+  #r36s-panel .tab-keys, #r36s-panel .tab-pad, #r36s-panel .tab-touch { gap: 12px; }
+  #r36s-panel dl.extra, #r36s-panel .padrow dl, #r36s-panel dl.right { gap: 4px 12px; font-size: 13px; }
+  #r36s-panel .foot { padding: 10px 0 14px; }
+  #r36s-panel .go { padding: 8px 20px; }
+}
 
 /* ---- joystick de toque (tela Celular): paisagem = tela no meio, controles nas laterais; retrato = tela em cima */
 #r36s-touch { position: fixed; inset: 0; z-index: 30; pointer-events: none; font-family: "Space Mono", monospace; touch-action: none;
