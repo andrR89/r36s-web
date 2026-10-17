@@ -88,6 +88,18 @@ index 2443f80..6063ddd 100644
  
  # set C/C++ standard to use
  CFLAGS += -std=gnu11 -D_CRT_SECURE_NO_WARNINGS -Wno-discarded-qualifiers
+diff --git a/custom/mupen64plus-next_common.h b/custom/mupen64plus-next_common.h
+index 1ce8b90..974b815 100644
+--- a/custom/mupen64plus-next_common.h
++++ b/custom/mupen64plus-next_common.h
+@@ -132,6 +132,7 @@ extern uint32_t EnableEnhancedHighResStorage;
+ extern uint32_t EnableTxCacheCompression;
+ extern uint32_t ForceDisableExtraMem;
+ extern uint32_t IgnoreTLBExceptions;
++extern uint32_t AllowUnalignedDMA;
+ extern uint32_t EnableNativeResFactor;
+ extern uint32_t EnableN64DepthCompare;
+ extern uint32_t EnableThreadedRenderer;
 diff --git a/libretro-common/glsm/glsm.c b/libretro-common/glsm/glsm.c
 index b3e8c60..a626894 100644
 --- a/libretro-common/glsm/glsm.c
@@ -189,10 +201,20 @@ index e73003e..cf11d75 100644
    #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_APP)
      #include "fiber.c"
 diff --git a/libretro/libretro.c b/libretro/libretro.c
-index 4a9f129..3efd78e 100644
+index 4a9f129..fad047a 100644
 --- a/libretro/libretro.c
 +++ b/libretro/libretro.c
-@@ -445,7 +445,11 @@ static void emu_step_initialize(void)
+@@ -219,6 +219,9 @@ uint32_t CountPerOpDenomPot = 0;
+ uint32_t CountPerScanlineOverride = 0;
+ uint32_t ForceDisableExtraMem = 0;
+ uint32_t IgnoreTLBExceptions = 0;
++/* PI DMA do cartucho com endereço ímpar: o N64 ignora o bit 0; o parallel_n64 antigo (o do aparelho) respeitava
++ * ("allow-unaligned-dma", padrão ligado). Hacks antigos do SM64 (extensor de ROM de 2009) dependem disso. */
++uint32_t AllowUnalignedDMA = 1;
+ 
+ extern struct device g_dev;
+ extern unsigned int r4300_emumode;
+@@ -445,7 +448,11 @@ static void emu_step_initialize(void)
      plugin_connect_all();
  }
  
@@ -204,7 +226,7 @@ index 4a9f129..3efd78e 100644
  {
      uint32_t netplay_port = 0;
      uint16_t netplay_player = 1;
-@@ -491,7 +495,11 @@ static void* EmuThreadFunction(void* param)
+@@ -491,7 +498,11 @@ static void* EmuThreadFunction(void* param)
          emuThreadRunning = false;
      }
  
@@ -216,7 +238,19 @@ index 4a9f129..3efd78e 100644
  }
  
  static void reinit_gfx_plugin(void)
-@@ -2056,7 +2064,7 @@ void retro_run (void)
+@@ -1543,6 +1554,11 @@ static void update_variables(bool startup)
+           else if (!strcmp(var.value, "AlwaysIgnoreTLB"))
+              IgnoreTLBExceptions = 2;
+        }
++
++       var.key = CORE_NAME "-allow-unaligned-dma";
++       var.value = NULL;
++       if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
++          AllowUnalignedDMA = !strcmp(var.value, "False") ? 0 : 1;
+     }
+ 
+ #ifdef HAVE_PARALLEL_RDP
+@@ -2056,7 +2072,7 @@ void retro_run (void)
         {
            if(!emuThreadRunning)
            {
@@ -225,3 +259,63 @@ index 4a9f129..3efd78e 100644
               emuThreadRunning = true;
            }
         }
+diff --git a/libretro/libretro_core_options.h b/libretro/libretro_core_options.h
+index fb39aa9..ca16ade 100644
+--- a/libretro/libretro_core_options.h
++++ b/libretro/libretro_core_options.h
+@@ -355,7 +355,11 @@ struct retro_core_option_v2_definition option_defs_us[] = {
+ #endif // HAVE_OPENGLES2
+             { NULL, NULL },
+         },
+-#ifndef HAVE_OPENGLES2
++#if defined(EMSCRIPTEN)
++        /* WebGL: o glMapBufferRange do emscripten não lê (MAP_READ), então o Async nunca copia nada e só paga o
++         * glReadPixels por quadro (e um aviso no console a cada quadro); Sync trava a GPU a cada quadro */
++        "Off"
++#elif !defined(HAVE_OPENGLES2)
+         "Async"
+ #else
+         "Sync"
+@@ -1488,6 +1492,20 @@ struct retro_core_option_v2_definition option_defs_us[] = {
+         },
+         "False"
+     },
++    {
++        CORE_NAME "-allow-unaligned-dma",
++        "Unaligned DMA Behaviour",
++        NULL,
++        "(as in parallel_n64) 'Allow Unaligned' keeps odd cartridge addresses in PI DMA, which some old romhacks need; 'Force Alignment' is accurate to N64.",
++        NULL,
++        NULL,
++        {
++            {"True", "Allow Unaligned"},
++            {"False", "Force Alignment"},
++            { NULL, NULL },
++        },
++        "True"
++    },
+     {
+         CORE_NAME "-CountPerOp",
+         "Count Per Op",
+diff --git a/mupen64plus-core/src/device/rcp/pi/pi_controller.c b/mupen64plus-core/src/device/rcp/pi/pi_controller.c
+index 6b8918d..884b7ec 100644
+--- a/mupen64plus-core/src/device/rcp/pi/pi_controller.c
++++ b/mupen64plus-core/src/device/rcp/pi/pi_controller.c
+@@ -20,6 +20,7 @@
+  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+ 
+ #include "pi_controller.h"
++#include <mupen64plus-next_common.h>
+ 
+ #define M64P_CORE_PROTOTYPES 1
+ #include <stdint.h>
+@@ -94,6 +95,9 @@ static void dma_pi_write(struct pi_controller* pi)
+     uint32_t cart_addr = pi->regs[PI_CART_ADDR_REG] & ~UINT32_C(1);
+     uint32_t dram_addr = pi->regs[PI_DRAM_ADDR_REG] & 0xfffffe;
+     uint32_t length = (pi->regs[PI_WR_LEN_REG] & UINT32_C(0x00ffffff)) + 1;
++    /* ROM do cartucho (dom1 addr2) com endereço ímpar: como o parallel_n64 antigo, lê a partir do byte pedido */
++    if (AllowUnalignedDMA && (pi->regs[PI_CART_ADDR_REG] & 1) && pi->regs[PI_CART_ADDR_REG] >= MM_CART_ROM && pi->regs[PI_CART_ADDR_REG] < UINT32_C(0x1fc00000))
++        cart_addr = pi->regs[PI_CART_ADDR_REG];
+     uint8_t* dram = (uint8_t*)pi->ri->rdram->dram;
+ 
+     const struct pi_dma_handler* handler = NULL;
