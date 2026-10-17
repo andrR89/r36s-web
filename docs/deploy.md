@@ -88,9 +88,11 @@ npx netlify-cli deploy --dir dist --prod     # produção
 ```
 
 - `dist/_headers`: `application/wasm`, cache dos núcleos, `Cross-Origin-Opener-Policy: same-origin-allow-popups`
-  (o popup do Google precisa falar com a página). **Sem COEP**: nada usa `SharedArrayBuffer` (ES e núcleos sem
-  pthreads) e `require-corp` bloquearia o script `accounts.google.com/gsi/client`. Se um núcleo futuro precisar de
-  threads, usar `Cross-Origin-Embedder-Policy: credentialless` só em `/index.html` e `/retroarch/*`.
+  em `/site/*` (o popup do Google precisa falar com a página). **Sem COEP** no site e no ES: `require-corp`
+  bloquearia o script `accounts.google.com/gsi/client`. O PSP (ppsspp, pthreads -> `SharedArrayBuffer`) roda numa
+  aba própria, `/retroarch/isolated.html`, a única com `COOP: same-origin` + `COEP: require-corp` (ver
+  docs/port-notes.md, "PSP no site"). O COOP não fica no `/*` porque o Netlify junta os valores de regras que casam
+  no mesmo caminho. Conferir depois do deploy: na aba do PSP, `crossOriginIsolated === true` no console.
 - `dist/_redirects`: `/` → `/site/`.
 - Compressão: o Netlify serve gzip/brotli sozinho para texto e wasm.
 - Arquivos grandes: `scummvm_libretro.wasm` (73 MB) e `fbneo_libretro.wasm` (42 MB) — conferir se o plano do
@@ -109,4 +111,6 @@ npx netlify-cli deploy --dir dist --prod     # produção
 O site é servido em `/r36s/site/` pelo `hub.py`. O patch `patches/hub/0003-site-coop-gis.patch` faz o hub mandar
 `COOP: same-origin-allow-popups` e **não** mandar COEP nessas páginas (login do Google); sem ele o login real em
 `localhost:8770` não abre (o resto funciona). Aplicar com `patch -d ~/Workspace/web-ports < patches/hub/0003-site-coop-gis.patch`
-e reiniciar o serviço `webports-hub`.
+e reiniciar o serviço `webports-hub`. O `0004-r36s-isolated-player.patch` deixa explícito que
+`/r36s/retroarch/isolated.html` (aba do PSP) é sempre isolada — o hub já manda COOP/COEP fora de `/r36s/site/`,
+então ele não muda o comportamento hoje (opcional).

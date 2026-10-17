@@ -15,11 +15,12 @@ const IMG = /\.(png|jpe?g|webp|gif|svg)$/i;
 const resp = (body, status = 200, headers = {}) => new Response(body, { status, headers });
 const notFound = () => resp(null, 404);
 
-export function createIO({ backend, site }) {
+// preload {manifest, eager}: índice já baixado (aba isolada do PSP: a página do ES manda pelo BroadcastChannel)
+export function createIO({ backend, site, preload }) {
   const drive = site && site.drive;
   const library = site && site.library;
   const demoRoot = new URL("site/demo/", ROOT);
-  let manifest = null, eager = null, byDir = null;
+  let manifest = (preload && preload.manifest) || null, eager = (preload && preload.eager) || null, byDir = null;
   const stats = { media: 0, cached: 0, prefetched: 0, bytes: 0, saves: { get: 0, put: 0 } };
 
   const entryOf = vpath => manifest && (manifest.files[vpath] || (manifest.extra && manifest.extra[vpath])) || null;
@@ -166,6 +167,7 @@ export function createIO({ backend, site }) {
   const io = {
     backend, stats,
     get manifest() { return manifest; },
+    get eager() { return eager; },
     fetchFrom(base) {
       return (input, init) => route(new URL(typeof input === "string" ? input : input.url, base).href, init || {});
     },

@@ -21,14 +21,16 @@ const params = new URLSearchParams(location.search);
 const system = params.get("system") || "";
 let core = params.get("core") || "";
 const rom = params.get("rom") || "";
-const embedded = window.parent !== window;
+// aba isolada (núcleos com threads no site: retroarch/isolated.html + isolated.js) faz o papel do pai: window.r36sHost
+const host = window.r36sHost || null;
+const embedded = window.parent !== window || !!host;
 const msg = document.getElementById("msg");
 const syncEl = document.getElementById("sync");
 const canvas = document.getElementById("canvas");
 const log = (...a) => console.log("[play]", ...a);
 // E/S: no hub, fetch/XHR do navegador (../fs, ../saves, ../data). Dentro do site (backend drive/demo) o player usa o
 // backend da página do ES (web/io.js), que traduz essas mesmas URLs; nada mais muda aqui entre os backends.
-const io = (() => { try { return embedded && parent.r36s && parent.r36s.io; } catch (e) { return null; } })();
+const io = (() => { try { return host ? host.io : embedded && parent.r36s && parent.r36s.io; } catch (e) { return null; } })();
 const fetch = io ? io.fetchFrom(location.href) : globalThis.fetch.bind(globalThis);
 const XMLHttpRequest = io ? io.xhrFrom(location.href) : globalThis.XMLHttpRequest;
 const state = { module: null, finished: false, started: false };
@@ -151,7 +153,8 @@ function show(text, sub, err) {
 }
 
 function postParent(data) {
-  if (embedded) parent.postMessage(data, location.origin);
+  if (host) host.post(data);
+  else if (embedded) parent.postMessage(data, location.origin);
 }
 
 // ---------- saves: servidor + IndexedDB para o que não subiu ----------
@@ -299,6 +302,7 @@ async function finish(code, reason) {
   if (embedded) postParent({ type: "r36s-exit", code, saved });
   else show("jogo encerrado", saved ? "save sincronizado" : "save guardado no navegador (servidor indisponível)", !saved);
 }
+state.quit = why => finish(0, why);   // aba isolada: a página do ES pediu para fechar
 
 // erro antes de iniciar: mostra e sai com qualquer tecla (ou em 8 s, dentro do ES)
 function fatal(text, detail) {
@@ -317,6 +321,7 @@ state.lazy = lazyStats;
 
 // manifesto do FS do ES (o pai já tem; sozinho, baixa): lista das pastas e da BIOS sem perguntar ao servidor
 async function loadManifest() {
+  if (host && host.manifest) return host.manifest;
   try { if (embedded && parent.r36s && parent.r36s.fs && parent.r36s.fs.manifest) return parent.r36s.fs.manifest; } catch (e) {}
   const r = await fetch("../data/manifest.json");
   if (!r.ok) throw new Error(`manifest HTTP ${r.status}`);

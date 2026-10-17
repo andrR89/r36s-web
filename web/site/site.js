@@ -31,6 +31,8 @@ window.r36sApp = app;   // inspeção nos testes
 window.r36sSite = {
   get drive() { return auth.signedIn ? drive : null; },
   get library() { return app.library; },
+  // token para a aba isolada do PSP (web/bridge.js responde a ela pelo BroadcastChannel; nunca vai para URL/storage)
+  token(force) { return auth.signedIn ? auth.getToken(force) : Promise.resolve(""); },
   exit() { location.hash = app.library ? "#/biblioteca" : "#/"; },
 };
 
