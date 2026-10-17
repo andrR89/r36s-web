@@ -16,7 +16,12 @@ export const KEYS = {
   l: ["u", "KeyU", 85], r: ["o", "KeyO", 79], l2: ["y", "KeyY", 89], r2: ["p", "KeyP", 80],
   start: ["Enter", "Enter", 13], select: ["Backspace", "Backspace", 8],
   menu: ["Escape", "Escape", 27], save: ["F5", "F5", 116], load: ["F7", "F7", 118], quit: ["F12", "F12", 123],
+  // analógicos (retroarch.cfg web): esquerdo = setas, direito = T/F/G/H (botões C do N64)
+  lsu: ["ArrowUp", "ArrowUp", 38], lsd: ["ArrowDown", "ArrowDown", 40], lsl: ["ArrowLeft", "ArrowLeft", 37], lsr: ["ArrowRight", "ArrowRight", 39],
+  rsu: ["t", "KeyT", 84], rsd: ["g", "KeyG", 71], rsl: ["f", "KeyF", 70], rsr: ["h", "KeyH", 72],
 };
+// sistemas em que o joystick de toque mostra os dois analógicos (no jogo)
+const ANALOG_SYSTEMS = /^\/roms\/(n64|psp|dreamcast|psx)\//;
 // teclado como Jogador 2 (troca com 1 controle): as teclas do P2 no retroarch.cfg web (teclado numérico)
 const P2_CODES = { up: ["8", "Numpad8", 104], down: ["2", "Numpad2", 98], left: ["4", "Numpad4", 100], right: ["6", "Numpad6", 102],
   a: ["3", "Numpad3", 99], b: ["1", "Numpad1", 97], x: ["9", "Numpad9", 105], y: ["7", "Numpad7", 103],
@@ -163,7 +168,9 @@ export function installControls({ canvas, siteMode = false, site = null }) {
     requestAnimationFrame(poll);
     pads.scan();
     const inGame = !!window.r36s.game;
-    if (inGame !== prevGame) { prevGame = inGame; releaseES(); if (!inGame) render(); else { clearTimeout(badgeTimer); badgeTimer = setTimeout(() => badges.classList.remove("show"), 5000); } }
+    if (inGame !== prevGame) {
+      document.body.classList.toggle("r36s-analog", inGame && ANALOG_SYSTEMS.test(window.r36s.game.rom || ""));
+      prevGame = inGame; releaseES(); if (!inGame) render(); else { clearTimeout(badgeTimer); badgeTimer = setTimeout(() => badges.classList.remove("show"), 5000); } }
     if (inGame || state.panel) return padsForPanel();
     const now = new Set();
     for (const gp of nativeGetPads()) {
@@ -301,9 +308,11 @@ function installTouch(state, { openPanel, siteMode, site }) {
   const abxy = el("div", { class: "abxy", role: "group", "aria-label": "Botões de ação" },
     btn("x", "X", "x"), btn("y", "Y", "y"), btn("a", "A", "a"), btn("b", "B", "b"));
   const menuBtn = el("button", { type: "button", class: "menu", "aria-label": "Menu", text: "≡" });
+  function stick(side, label) { return el("div", { class: `stick ${side}s`, role: "group", "aria-label": label, "data-stick": side }, el("b")); }
   const pad = el("div", { id: "r36s-touch" },
     btn("l", "L", "sh l"), btn("r", "R", "sh r"), btn("l2", "L2", "sh2 l2"), btn("r2", "R2", "sh2 r2"),
-    dpad, abxy, el("div", { class: "ss" }, btn("select", "SELECT", "pill"), btn("start", "START", "pill")), menuBtn);
+    dpad, abxy, el("div", { class: "ss" }, btn("select", "SELECT", "pill"), btn("start", "START", "pill")), menuBtn,
+    stick("l", "Analógico esquerdo"), stick("r", "Analógico direito"));
   document.body.append(pad);
 
   const sheet = el("div", { id: "r36s-sheet", role: "menu" });
@@ -329,10 +338,29 @@ function installTouch(state, { openPanel, siteMode, site }) {
   // botões que mudaram são tocados no DOM.
   const fingers = new Map();
   let rects = null;
+  const fingerPos = new Map();   // dedo -> [x, y]
+  // pino de cada analógico: segue o dedo que está sobre ele (até a borda); sem dedo, volta ao centro. Uma vez por quadro.
+  const drawKnobs = () => {
+    for (const q of rects || []) if (q.stick) {
+      let dx = 0, dy = 0;
+      for (const [x, y] of fingerPos.values()) if (x >= q.l && x <= q.r && y >= q.t && y <= q.b) {
+        dx = x - q.cx; dy = y - q.cy;
+        const k = Math.min(1, q.w / 2 / (Math.hypot(dx, dy) || 1)); dx *= k; dy *= k;
+        break;
+      }
+      q.el.firstChild.style.transform = `translate(${Math.round(dx)}px, ${Math.round(dy)}px)`;
+    }
+  };
   const measure = () => {
     rects = [];
     const d = dpad.getBoundingClientRect();
     rects.push({ dpad: true, l: d.left, t: d.top, r: d.right, b: d.bottom, cx: d.left + d.width / 2, cy: d.top + d.height / 2, w: d.width });
+    for (const e of pad.querySelectorAll("[data-stick]")) {
+      const q = e.getBoundingClientRect();
+      // a área de toque passa um pouco da borda: o dedo escorrega para fora sem soltar o analógico
+      if (q.width) rects.push({ stick: e.dataset.stick, el: e, l: q.left - 30, t: q.top - 30, r: q.right + 30, b: q.bottom + 30,
+        cx: q.left + q.width / 2, cy: q.top + q.height / 2, w: q.width });
+    }
     for (const e of pad.querySelectorAll("[data-btn]")) {
       const q = e.getBoundingClientRect();
       if (q.width) rects.push({ btn: e.dataset.btn, l: q.left, t: q.top, r: q.right, b: q.bottom });
@@ -345,6 +373,14 @@ function installTouch(state, { openPanel, siteMode, site }) {
       if (x < q.l || x > q.r || y < q.t || y > q.b) continue;
       if (q.btn) return [q.btn];
       const dx = x - q.cx, dy = y - q.cy;
+      if (q.stick) {   // 8 direções, zona morta de 25% do raio
+        const rad = q.w / 2, dist = Math.hypot(dx, dy);
+        if (dist < rad * 0.25) return [];
+        const a = Math.atan2(dy, dx) * 180 / Math.PI, s = q.stick + "s", out = [];
+        if (a > -67.5 && a < 67.5) out.push(s + "r"); if (a > 112.5 || a < -112.5) out.push(s + "l");
+        if (a > 22.5 && a < 157.5) out.push(s + "d"); if (a < -22.5 && a > -157.5) out.push(s + "u");
+        return out;
+      }
       if (Math.hypot(dx, dy) < q.w * 0.12) return [];
       const a = Math.atan2(dy, dx) * 180 / Math.PI, out = [];   // 0 = direita, 90 = baixo
       if (a > -67.5 && a < 67.5) out.push("right"); if (a > 112.5 || a < -112.5) out.push("left");
@@ -368,19 +404,24 @@ function installTouch(state, { openPanel, siteMode, site }) {
     state.touchHeld = now;
   };
   let moved = false;
-  const flush = () => { moved = false; sync(); };
+  const flush = () => { moved = false; sync(); drawKnobs(); };
   pad.addEventListener("pointerdown", e => {
     if (e.target.closest(".menu")) return;
     e.preventDefault();
     try { pad.setPointerCapture(e.pointerId); } catch (x) {}
     if (!fingers.size) rects = null;   // a cada novo toque, mede de novo (a orientação pode ter mudado)
-    fingers.set(e.pointerId, at(e.clientX, e.clientY)); sync();   // apertar responde na hora
+    fingerPos.set(e.pointerId, [e.clientX, e.clientY]);
+    fingers.set(e.pointerId, at(e.clientX, e.clientY)); sync(); drawKnobs();   // apertar responde na hora
   });
   pad.addEventListener("pointermove", e => {
     if (!fingers.has(e.pointerId)) return;
+    fingerPos.set(e.pointerId, [e.clientX, e.clientY]);
     fingers.set(e.pointerId, at(e.clientX, e.clientY));
     if (!moved) { moved = true; requestAnimationFrame(flush); }
   });
-  for (const t of ["pointerup", "pointercancel", "lostpointercapture"]) pad.addEventListener(t, e => { if (fingers.delete(e.pointerId)) sync(); });
+  for (const t of ["pointerup", "pointercancel", "lostpointercapture"]) pad.addEventListener(t, e => {
+    fingerPos.delete(e.pointerId);
+    if (fingers.delete(e.pointerId)) { sync(); drawKnobs(); }
+  });
   pad.addEventListener("contextmenu", e => e.preventDefault());
 }

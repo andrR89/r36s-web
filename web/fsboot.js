@@ -20,13 +20,15 @@ export async function bootFS(Module, fetch = globalThis.fetch.bind(globalThis)) 
   }
   // o C++ chama com o caminho como o ES o vê (pode passar por symlink ou ter "//"): normaliza
   const realPath = p => { try { return FS.lookupPath(p, { follow: true }).path; } catch (e) { return p; } };
-  const stats = { fetched: 0, bytes: 0 };
+  const stats = { fetched: 0, bytes: 0, frozen: 0 };
+  const freeze = freezer(Module);
   // chamado pelo C++ (EM_ASYNC_JS web_fetch_lazy) antes de ler um arquivo
   Module.fetchLazy = async path => {
     let key = path;
     if (!lazy.has(key)) { key = realPath(path); if (!lazy.has(key)) return 0; }
     const url = lazy.get(key);
     lazy.delete(key);
+    if (freeze.show()) stats.frozen++;   // vai ceder ao navegador no meio do quadro: mostra o último quadro inteiro
     const r = await fetch(url);
     if (!r.ok) { console.warn("[r36s] lazy falhou", key, r.status); return 0; }
     let data = new Uint8Array(await r.arrayBuffer());
@@ -36,6 +38,42 @@ export async function bootFS(Module, fetch = globalThis.fetch.bind(globalThis)) 
     return 1;
   };
   return { files: Object.keys(manifest.files).length, lazy: lazy.size, stats, manifest };   // manifest: o player usa (pastas, BIOS)
+}
+
+// Busca sob demanda no meio de um quadro: o ES cede ao navegador com o quadro pela metade (já limpo, sem o fundo) e o
+// navegador mostra isso — a tela pisca preta enquanto a capa chega do Drive. O ES avisa a cada quadro completo
+// (Module.r36sFrameDone, em web_wait_frame); aqui fica uma cópia dele num canvas 2D por cima, mostrada só enquanto uma
+// busca está pendente, e escondida no quadro completo seguinte.
+function freezer(Module) {
+  const gl = Module.canvas;
+  let snap = null, ctx = null, has = false, shown = false;
+  const place = () => {
+    if (!snap) {
+      snap = document.createElement("canvas");
+      snap.id = "r36s-freeze";
+      snap.style.cssText = "position:fixed;pointer-events:none;display:none;z-index:1;margin:0";
+      ctx = snap.getContext("2d", { alpha: false });
+      gl.after(snap);
+    }
+    const r = gl.getBoundingClientRect();
+    Object.assign(snap.style, { left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px" });
+  };
+  Module.r36sFrameDone = () => {
+    if (window.r36s && window.r36s.game) { has = false; return; }   // com jogo aberto o ES não desenha
+    if (!gl.width || !gl.height) return;
+    if (!snap) place();
+    if (snap.width !== gl.width || snap.height !== gl.height) { snap.width = gl.width; snap.height = gl.height; }
+    ctx.drawImage(gl, 0, 0);   // mesmo task do quadro: o drawing buffer ainda está inteiro
+    has = true;
+    if (shown) { shown = false; snap.style.display = "none"; }
+  };
+  return {
+    show() {
+      if (!has || shown) return false;
+      place(); snap.style.display = "block"; shown = true;
+      return true;
+    },
+  };
 }
 
 // capas WebP com extensão .png (scraper): o FreeImage do aparelho lê, o stb_image do ES web não -> o navegador converte

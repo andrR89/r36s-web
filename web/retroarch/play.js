@@ -18,6 +18,12 @@ const CORE_OPTS = `${RA}/userdata/retroarch-core-options.cfg`;
 const COARSE = matchMedia("(pointer: coarse)").matches;
 const MOBILE_CORE_DEFAULTS = {
   mupen64plus_next: { "mupen64plus-43screensize": "320x240", "mupen64plus-FrameDuping": "True" },
+  flycast: { "reicast_internal_resolution": "320x240", "reicast_auto_skip_frame": "some" },
+};
+// celular: valem mesmo sobre o cartão. O flycast web não tem threads: "threaded rendering" (ligado no cartão, certo
+// no aparelho) travava o Dreamcast no celular.
+const MOBILE_CORE_FORCE = {
+  flycast: { "reicast_threaded_rendering": "disabled" },
 };
 const CARD_RA = "../fs/home/ark/.config/retroarch";   // cópia dos cfgs do ROOTFS (data/mkcard.py)
 const SYNC_MS = 2000;
@@ -546,6 +552,7 @@ async function main() {
   for (const t of [optCore, optGame]) for (const [k, v] of parseCfg(t)) opts.set(k, v);
   for (const k of [...opts.keys()]) if (CORE_OPT_BLOCK.test(k)) opts.delete(k);
   for (const [k, v] of Object.entries((COARSE && MOBILE_CORE_DEFAULTS[core]) || {})) if (!opts.has(k)) { opts.set(k, v); log("celular:", k, "=", v); }
+  for (const [k, v] of Object.entries((COARSE && MOBILE_CORE_FORCE[core]) || {})) { opts.set(k, v); log("celular (forçado):", k, "=", v); }
   FS.writeFile(CORE_OPTS, [...opts].map(([k, v]) => `${k} = "${v}"`).join("\n") + "\n");
   let cfg = RETROARCH_CFG + RETROARCH_PADS;
   const applied = [];

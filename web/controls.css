@@ -124,3 +124,14 @@ body.r36s-portrait #r36s-touch .ss { bottom: 18px; }
   font: 700 14px "Space Mono", monospace; }
 #r36s-sheet button:active { background: var(--line); }
 @media (prefers-reduced-motion: reduce) { #r36s-toast, #r36s-badges { transition: none; } }
+
+/* analógicos de toque (N64, PSP, Dreamcast, PS1: só no jogo): cantos de baixo, pino segue o dedo */
+#r36s-touch .stick { display: none; position: absolute; bottom: 12px; width: 104px; height: 104px; border-radius: 50%;
+  background: rgba(27,20,70,.55); border: 2px solid #6f5ce0; pointer-events: auto; touch-action: none; }
+#r36s-touch .stick.ls { left: 24px; } #r36s-touch .stick.rs { right: 24px; }
+#r36s-touch .stick b { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%;
+  background: rgba(75,58,176,.95); border: 2px solid #9b8cff; will-change: transform; pointer-events: none; }
+body.r36s-analog #r36s-touch .stick { display: block; }
+body.r36s-analog #r36s-touch .dpad, body.r36s-analog #r36s-touch .abxy { top: 41%; }
+body.r36s-portrait.r36s-analog #r36s-touch .stick { bottom: 76px; }
+body.r36s-portrait.r36s-analog #r36s-touch .dpad, body.r36s-portrait.r36s-analog #r36s-touch .abxy { top: 34%; }

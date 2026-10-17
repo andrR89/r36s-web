@@ -10,7 +10,7 @@
   #canvas{display:block;margin:auto;height:100% !important;width:auto !important;aspect-ratio:4/3;max-width:100%;image-rendering:auto;outline:none}
   #game{position:fixed;inset:0;width:100%;height:100%;border:0;background:#000;z-index:10}
   #status{position:fixed;left:8px;bottom:8px;color:#888;font:12px system-ui}
-  #status.err{color:#f88;font-size:14px}
+  #status.err{color:#ffd23f;font-size:15px;line-height:1.5;left:50%;bottom:auto;top:50%;transform:translate(-50%,-50%);max-width:min(560px,90vw);padding:16px 20px;background:#1b1446;border:3px solid #ff2e88;z-index:60}
   /* aviso da ponte (sistema sem emulador no navegador): por cima do ES por alguns segundos */
   #notice{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:20;max-width:80%;padding:18px 26px;border-radius:10px;
           background:rgba(20,20,24,.92);color:#eee;font:18px system-ui;text-align:center;box-shadow:0 4px 30px #000;pointer-events:none}
@@ -45,6 +45,18 @@
   window.r36s = { ready: false, t0, backend, io };
   keepFocus(canvas);   // antes de tudo: a primeira tecla não se perde mesmo sem clicar
   installControls({ canvas, siteMode: !!site, site });   // painel de comandos, toque, controles, 2 jogadores
+  // sem WebGL (o Chrome bloqueia o 3D depois de travamentos da GPU, ou driver fora da lista) o SDL falha com
+  // "EGL_BAD_MATCH" e o ES quebra no primeiro glClearColor: testa num canvas à parte e explica o que fazer
+  const probe = document.createElement("canvas").getContext("webgl", { depth: true, stencil: true });
+  if (!probe) {
+    status.className = "err";
+    status.textContent = "O navegador não liberou o 3D (WebGL). Feche o navegador por completo e abra de novo. " +
+      "Se continuar: no Chrome, abra chrome://gpu e veja se WebGL está \"Hardware accelerated\"; " +
+      "em Configurações > Sistema, ligue \"Usar aceleração de hardware\".";
+    window.r36s.error = "sem WebGL";
+    throw new Error("WebGL indisponível");
+  }
+  const lose = probe.getExtension("WEBGL_lose_context"); if (lose) lose.loseContext();   // devolve o contexto
   const Module = await createES({
     canvas,
     thisProgram: "/usr/bin/emulationstation/emulationstation",   // ES acha resources/ ao lado do executável
