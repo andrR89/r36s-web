@@ -1,9 +1,9 @@
 # Sistemas do cartão x núcleos web
 
 Gerado por `data/mkcores.py` (não editar à mão). Jogos = ROMs que o ES lista (extensões do `es_systems.cfg`).
-Núcleos web: RetroArch emscripten do buildbot (98 núcleos, `data/web-cores.txt`) + compilados aqui por `build/build-core.sh` (easyrpg, melonds, mupen64plus_next, picodrive, ppsspp, prosystem).
+Núcleos web: RetroArch emscripten do buildbot (98 núcleos, `data/web-cores.txt`) + compilados aqui por `build/build-core.sh` (easyrpg, flycast, melonds, mupen64plus_next, picodrive, ppsspp, prosystem).
 
-**27 de 30 sistemas jogáveis no navegador — 7397 de 7421 jogos.** Visíveis no ES (sem os do HiddenSystems): 25 de 27 sistemas, 7394 de 7417 jogos.
+**28 de 30 sistemas jogáveis no navegador — 7403 de 7421 jogos.** Visíveis no ES (sem os do HiddenSystems): 26 de 27 sistemas, 7400 de 7417 jogos.
 
 | Sistema | Pasta | Jogos | dArkOS (emulador/núcleo) | Núcleo web | Observação |
 |---|---|---:|---|---|---|
@@ -31,9 +31,9 @@ Núcleos web: RetroArch emscripten do buildbot (98 núcleos, `data/web-cores.txt
 | PlayStation Portable | psp | 9 | standalone | ppsspp | o dArkOS usa o PPSSPP standalone; aqui o núcleo libretro; compilado aqui (build/build-core.sh: fork EmulatorJS/ppsspp, pthreads + WebGL2; exige COOP/COEP); saves do memory stick sincronizados num blob por jogo |
 | PICO-8 | pico-8 | 7 | float-scaled | retro8 | o dArkOS usa o PICO-8 oficial/fake08 (fora do RetroArch); Retro8 é compatibilidade parcial |
 | Capcom System III | cps3 | 6 | retroarch/fbneo | fbneo |  |
+| Dreamcast | dreamcast | 6 | retroarch32/flycast32_rumble | flycast | flycast32_rumble não existe na web; compilado aqui (build/build-core.sh: flycast + port wasm/JIT SH4->wasm do nasomers/flycast-wasm, WebGL2); sem BIOS no cartão: boot HLE |
 | Super Grafx | supergrafx | 5 | retroarch/mednafen_supergrafx | geargrafx | mednafen_supergrafx não existe na web; Geargrafx roda SuperGrafx |
 | SCUMM Virtual Machine | scummvm | 2 | standalone | scummvm | oculto no ES (HiddenSystems do es_settings.cfg) |
 | Wolfenstein | wolf | 1 | standalone | ecwolf | oculto no ES (HiddenSystems do es_settings.cfg) |
 | Ports | ports | 17 | comando próprio | — sem núcleo web | sem núcleo libretro no dArkOS |
-| Dreamcast | dreamcast | 6 | retroarch32/flycast32_rumble | — sem núcleo web | nenhum dos núcleos (flycast32_rumble, flycast_xtreme, reicast_xtreme, flycast_rumble, flycast) existe na web |
 | American Laser Games | alg | 1 | comando próprio | — sem núcleo web | oculto no ES (HiddenSystems do es_settings.cfg); sem núcleo libretro no dArkOS |

@@ -2,6 +2,8 @@
 // Abre só o player (retroarch/play.html, sem o ES), espera o primeiro quadro, deixa rodar N segundos apertando Enter (Start)
 // algumas vezes, mede FPS aproximado (rAF) e quadros do núcleo (contagem de swaps do GL), grava screenshot e o log do RetroArch.
 // Ferramenta de desenvolvimento para núcleos novos (build/build-core.sh); o teste de verdade é o e2e_systems.mjs.
+// Ambiente: R36S_URL = base do site (padrão http://localhost:8770/r36s/); PLAY_QS = parâmetros extras do play.html
+// (ex.: hud=1 liga o HUD do flycast, "FPS:<emulados>/<alvo>", lido para "hud" no resultado).
 import { chromium } from "/home/andre/Workspace/web-ports/tools/pw/node_modules/playwright-core/index.mjs";
 import { mkdirSync, writeFileSync } from "node:fs";
 const [system, rom, core = "", secs = "20", outArg] = process.argv.slice(2);
@@ -29,7 +31,8 @@ const lit = () => page.evaluate(() => {
   return +(n / (d.length / 4)).toFixed(3);
 }).catch(() => 0);
 const t0 = Date.now();
-await page.goto("http://localhost:8770/r36s/retroarch/play.html?" + new URLSearchParams({ system, core, rom }));
+const base = process.env.R36S_URL || "http://localhost:8770/r36s/";
+await page.goto(base + "retroarch/play.html?" + new URLSearchParams({ system, core, rom }) + (process.env.PLAY_QS ? "&" + process.env.PLAY_QS : ""));
 const r = { system, rom, core };
 let v = 0;
 while (Date.now() - t0 < 120000) { v = await lit(); if (v > 0.01) break; if (logs.some(l => /PAGEERROR|RuntimeError/.test(l))) break; await page.waitForTimeout(250); }
@@ -44,6 +47,7 @@ r.fps = await page.evaluate(() => new Promise(res => { let n = 0; const t = perf
   const f = () => { n++; if (performance.now() - t < 5000) requestAnimationFrame(f); else res(+(n / ((performance.now() - t) / 1000)).toFixed(1)); };
   requestAnimationFrame(f); }));
 r.lit = await lit();
+r.hud = await page.evaluate(() => document.getElementById("fc-hud")?.textContent || null);
 r.started = await page.evaluate(() => window.r36sPlay && window.r36sPlay.started);
 await page.screenshot({ path: `${out}/play-${system}.png` });
 writeFileSync(`${out}/play-${system}.log`, logs.join("\n") + "\n");

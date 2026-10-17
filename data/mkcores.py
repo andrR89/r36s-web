@@ -24,9 +24,10 @@ OWN_CORES = {
     "ppsspp": "compilado aqui (build/build-core.sh: fork EmulatorJS/ppsspp, pthreads + WebGL2; exige COOP/COEP); saves do memory stick sincronizados num blob por jogo",
     "easyrpg": "compilado aqui (build/build-core.sh: EasyRPG Player libretro; sem ICU: só textos windows-1252; sem MP3/OGG, MIDI pelo FmMidi interno)",
     "melonds": "compilado aqui (build/build-core.sh: melonDS libretro, renderizador por software; BIOS/firmware livres embutidos)",
+    "flycast": "compilado aqui (build/build-core.sh: flycast + port wasm/JIT SH4->wasm do nasomers/flycast-wasm, WebGL2); sem BIOS no cartão: boot HLE",
 }
 # núcleos que gravam o save como arquivo próprio (não o .srm da SRAM do RetroArch) no savefile_directory
-SAVE_EXT = {"melonds": ".sav"}
+SAVE_EXT = {"melonds": ".sav", "flycast": ".A1.bin"}   # flycast: VMU A1 por jogo (reicast_per_content_vmus)
 # save em árvore (o play.js empacota num blob <rom>.savedata): memory stick do PPSSPP fica em savefile_directory
 SAVE_TREE = {"ppsspp": "PSP/SAVEDATA", "easyrpg": "{rom}.save"}   # EasyRPG: zip só leitura -> grava em <rom>.save/
 # núcleos que quebram no quit do RetroArch: o play.js sai direto (Select+Start) sem descarregar o jogo
@@ -58,6 +59,7 @@ BIOS = {
     "gambatte": [("gb_bios.bin", False), ("gbc_bios.bin", False)],
     "nestopia": [("disksys.rom", False)],              # só FDS
     "mame2003_plus": [("mame2003-plus/hiscore.dat", False)],
+    "flycast": [("dc/dc_boot.bin", False), ("dc/dc_flash.bin", False)],   # sem elas: BIOS HLE (reios)
 }
 # BIOS do cartão com nome que o núcleo web não reconhece: md5 conhecido -> nome esperado
 BIOS_ALIAS_MD5 = {"924e392ed05558ffdb115408c263dccf": "scph1001.bin"}   # SCPH-1001 (v2.2 NA)
@@ -69,7 +71,7 @@ LIBRARY = {
     "gearsystem": "Gearsystem", "mednafen_pce_fast": "Beetle PCE Fast", "geargrafx": "Geargrafx", "fbneo": "FinalBurn Neo",
     "fbalpha2012": "FB Alpha 2012", "mame2003_plus": "MAME 2003-Plus", "handy": "Handy", "mednafen_lynx": "Beetle Lynx",
     "pcsx_rearmed": "PCSX-ReARMed", "tia": "Tia", "retro8": "retro8", "ecwolf": "ecwolf", "scummvm": "scummvm",
-    "mupen64plus_next": "Mupen64Plus-Next", "parallel_n64": "ParaLLEl N64", "melonds": "melonDS", "prosystem": "ProSystem", "ppsspp": "PPSSPP", "easyrpg": "EasyRPG Player",
+    "mupen64plus_next": "Mupen64Plus-Next", "parallel_n64": "ParaLLEl N64", "melonds": "melonDS", "prosystem": "ProSystem", "ppsspp": "PPSSPP", "easyrpg": "EasyRPG Player", "flycast": "Flycast",
     "mednafen_ngp": "Beetle NeoPop", "mednafen_wswan": "Beetle WonderSwan", "mednafen_vb": "Beetle VB",
 }
 
