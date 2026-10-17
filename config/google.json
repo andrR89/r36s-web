@@ -1,5 +1,5 @@
 {
   "googleClientId": "744452506858-bc5ddj07lucb2kqgpcr8t7svfdmrfu1s.apps.googleusercontent.com",
   "googleProject": "r36s-web",
-  "authorizedOrigins": ["http://localhost:8770"]
+  "authorizedOrigins": ["http://localhost:8770", "https://web-nfsc.netlify.app", "https://r36s-web.netlify.app"]
 }
