@@ -24,6 +24,13 @@ const result = { steps: {}, errors: [] };
 const step = (k, v) => { result.steps[k] = v; console.log(k, JSON.stringify(v)); };
 const run = k => !process.env.E2E_ONLY || process.env.E2E_ONLY.split(",").includes(k);
 const check = (cond, why) => { if (!cond) { result.errors.push(why); console.log("FALHOU:", why); } return cond; };
+// vigia: ações do playwright (teclado, evaluate) não têm timeout e esperam para sempre se uma aba prende a thread
+// (PPSSPP sem GPU com a máquina carregada: travou 9 h). Falha com o último passo em vez de travar. E2E_TIMEOUT em s.
+setTimeout(() => {
+  console.log("FALHOU: vigia — o teste passou de", process.env.E2E_TIMEOUT || 900, "s; último passo:", Object.keys(result.steps).at(-1));
+  for (const k of [() => mock.kill(), () => pspMock && pspMock.kill(), () => browser.close()]) try { k(); } catch {}
+  setTimeout(() => process.exit(2), 3000);
+}, 1000 * (+process.env.E2E_TIMEOUT || 900)).unref();
 
 // ---------- mock do Drive: biblioteca = ROMs do demo, índice gerado com os IDs do mock
 const freePort = () => new Promise(r => { const s = createServer(); s.listen(0, "127.0.0.1", () => { const p = s.address().port; s.close(() => r(p)); }); });
