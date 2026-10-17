@@ -6,8 +6,14 @@ ROMs (extensões do sistema, como arquivos vazios), gamelist.xml (eager), mídia
 (LocalArt, sob demanda), BIOS (sob demanda, para o player), o tema ativo (xml/fontes/svg eager, o resto sob demanda).
 O resto do cartão (dados de ports, lixeira, música, ocultos) fica de fora. Sem es_systems.cfg: regra antiga por extensão.
 Os symlinks da árvore são seguidos (card/roms -> cartão montado).
+
+Modo Drive (--drive-ids <lsjson>): a listagem `rclone lsjson -R --hash gdrive:R36S` (a pasta R36S do Drive = raiz do
+cartão de ROMs, ou seja, /roms) dá o ID de cada arquivo; cada entrada de /roms ganha "id" (e "v", versão para o cache:
+md5 ou data). Fora de /roms tudo vira eager (não está no Drive: vai no eager.bin). "extra" lista arquivos do Drive nas
+pastas de sistema que o ES não lista mas o player pode pedir (faixas .bin de .cue, saves .srm/.dsv do cartão...).
+Grava também info.json (sistemas, jogos) para a tela da biblioteca. Os três vão para R36S/.web/ no Drive.
 """
-import json, os, re, sys, urllib.parse
+import argparse, datetime, json, os, re, sys, urllib.parse
 import xml.etree.ElementTree as ET
 
 ROM_EXT = {".7z", ".zip", ".sfc", ".smc", ".nes", ".gb", ".gbc", ".gba", ".md", ".gen", ".bin",
@@ -139,7 +145,20 @@ def walk(src):
             files.append((vroot.rstrip("/") + "/" + fn, real, size))
         yield vroot, files
 
-def build(src, out):
+MEDIA_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".mkv", ".avi", ".pdf", ".txt", ".xml", ".nfo"}
+
+def read_lsjson(path):
+    """{'snes/Jogo.7z': {'id', 'size', 'v'}} de `rclone lsjson -R --hash` (só arquivos)."""
+    out = {}
+    for e in json.load(open(path, encoding="utf-8")):
+        if e.get("IsDir") or not e.get("ID"):
+            continue
+        h = (e.get("Hashes") or {})
+        v = (h.get("md5") or h.get("MD5") or "")[:10] or re.sub(r"\D", "", e.get("ModTime", ""))[:14]
+        out[e["Path"].lstrip("/")] = {"id": e["ID"], "size": e.get("Size", 0), "v": v}
+    return out
+
+def build(src, out, drive_ids=None):
     os.makedirs(out, exist_ok=True)
     systems = read_systems(src)
     tree = list(walk(src))
@@ -152,7 +171,7 @@ def build(src, out):
                 if vpath.endswith("/gamelist.xml") and vpath.startswith("/roms/"):
                     refs |= gamelist_refs(real, vroot)
         classify = CardRules(systems, active_theme(src), refs).classify
-    dirs, files, off = set(), {}, 0
+    dirs, files, off, missing = set(), {}, 0, []
     with open(os.path.join(out, "eager.bin"), "wb") as blob:
         for vroot, entries in tree:
             if vroot != "/" and (systems is None or not vroot.startswith("/roms")):
@@ -161,6 +180,8 @@ def build(src, out):
                 kind = classify(vpath, size)
                 if kind is None:
                     continue
+                if drive_ids is not None and kind == "lazy" and not vpath.startswith("/roms/"):
+                    kind = "eager"   # fora do Drive: vai no pacote
                 entry = {"size": size, "kind": kind}
                 if kind == "eager":
                     entry["off"] = off
@@ -171,15 +192,59 @@ def build(src, out):
                     entry["size"] = len(data)
                 elif kind == "lazy":
                     entry["url"] = "fs" + urllib.parse.quote(vpath)
+                if drive_ids is not None and vpath.startswith("/roms/") and kind != "eager":
+                    d = drive_ids.get(vpath[len("/roms/"):])
+                    if d:
+                        entry["id"] = d["id"]
+                        if d["v"]:
+                            entry["v"] = d["v"]
+                    else:
+                        missing.append(vpath)
                 files[vpath] = entry
                 d = os.path.dirname(vpath)
                 while d not in ("/", "") and d not in dirs:
                     dirs.add(d); d = os.path.dirname(d)
+    manifest = {"dirs": sorted(dirs), "files": files, "symlinks": SYMLINKS}
+    if drive_ids is not None:
+        manifest["extra"] = drive_extra(drive_ids, files, systems)
+        write_info(out, files, systems)
+        if missing:
+            print(f"aviso: {len(missing)} arquivos de /roms sem ID no Drive (não subiram?), ex.: {missing[:3]}", file=sys.stderr)
     with open(os.path.join(out, "manifest.json"), "w") as f:
-        json.dump({"dirs": sorted(dirs), "files": files, "symlinks": SYMLINKS}, f, ensure_ascii=False, separators=(",", ":"))
+        json.dump(manifest, f, ensure_ascii=False, separators=(",", ":"))
     return len(files), off
 
+def drive_extra(drive_ids, files, systems):
+    """Arquivos do Drive nas pastas de sistema (e bios) fora do manifesto, que o player pode precisar."""
+    prefixes = tuple(p + "/" for p in (systems or {})) + ("/roms/bios/",)
+    extra = {}
+    for rel, d in drive_ids.items():
+        vpath = "/roms/" + rel
+        if vpath in files or not vpath.startswith(prefixes) or any(part.startswith(".") for part in rel.split("/")):
+            continue
+        if os.path.splitext(rel)[1].lower() in MEDIA_EXT or "/images/" in vpath or "/videos/" in vpath:
+            continue
+        extra[vpath] = {"size": d["size"], "id": d["id"]}
+    return extra
+
+def write_info(out, files, systems):
+    """info.json: contagem de sistemas e jogos (tela da biblioteca no site)."""
+    per = {}
+    for vpath, e in files.items():
+        if e["kind"] == "empty" and vpath.startswith("/roms/") and not vpath.startswith(("/roms/bios/", "/roms/themes/")):
+            sysdir = "/".join(vpath.split("/")[:3])
+            if systems is None or sysdir in systems:
+                per[sysdir] = per.get(sysdir, 0) + 1
+    info = {"systems": len(per), "games": sum(per.values()), "perSystem": {k[6:]: v for k, v in sorted(per.items())},
+            "built": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+    with open(os.path.join(out, "info.json"), "w") as f:
+        json.dump(info, f, ensure_ascii=False, indent=1)
+
 if __name__ == "__main__":
-    n, size = build(sys.argv[1], sys.argv[2])
-    msize = os.path.getsize(os.path.join(sys.argv[2], "manifest.json"))
+    ap = argparse.ArgumentParser(description="manifest.json + eager.bin do FS do ES")
+    ap.add_argument("src"); ap.add_argument("out")
+    ap.add_argument("--drive-ids", metavar="LSJSON", help="saída de `rclone lsjson -R --hash gdrive:R36S` (modo Drive)")
+    a = ap.parse_args()
+    n, size = build(a.src, a.out, read_lsjson(a.drive_ids) if a.drive_ids else None)
+    msize = os.path.getsize(os.path.join(a.out, "manifest.json"))
     print(f"{n} arquivos, eager.bin {size/1e6:.1f} MB, manifest.json {msize/1e6:.1f} MB")

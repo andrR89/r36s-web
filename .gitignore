@@ -3,7 +3,7 @@ saves/
 src/
 .superpowers/
 card-sample/
-web/data/
+web/data
 web/fs
 __pycache__/
 build/es-out/
@@ -18,3 +18,7 @@ build/hub-backup/
 build/cores/
 web/retroarch/assets/
 web/retroarch/*_libretro.worker.js
+web/site/demo/fs/usr/
+web/site/demo/data/
+dist/
+.claude/

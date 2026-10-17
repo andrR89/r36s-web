@@ -4,6 +4,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
 <title>R36S</title>
 <link rel="icon" href="data:,">
+<link rel="stylesheet" href="controls.css">
 <style>
   html,body{margin:0;height:100%;background:#000;overflow:hidden}
   #canvas{display:block;margin:auto;height:100% !important;width:auto !important;aspect-ratio:4/3;max-width:100%;image-rendering:auto;outline:none}
@@ -22,11 +23,22 @@
   import createES from "./emulationstation.js";
   import { bootFS } from "./fsboot.js";
   import { installBridge, keepFocus } from "./bridge.js";
+  import { installControls } from "./controls.js";
+  import { createIO } from "./io.js";
   const t0 = performance.now();
   const status = document.getElementById("status");
   const canvas = document.getElementById("canvas");
-  window.r36s = { ready: false, t0 };
+  // backend de arquivos: hub (padrão: fs/, saves/ e data/ do hub local) ou, aberto pelo site (web/site/), drive/demo
+  const backend = new URLSearchParams(location.search).get("backend") || "hub";
+  const site = (() => { try { return parent !== window ? parent.r36sSite : null; } catch (e) { return null; } })();
+  if (backend !== "hub" && !site) {
+    status.textContent = "abra pelo site (site/) para usar o Google Drive"; status.className = "err";
+    throw new Error("backend " + backend + " sem o site");
+  }
+  const io = backend === "hub" ? null : createIO({ backend, site });
+  window.r36s = { ready: false, t0, backend, io };
   keepFocus(canvas);   // antes de tudo: a primeira tecla não se perde mesmo sem clicar
+  installControls({ canvas, siteMode: !!site, site });   // painel de comandos, toque, controles, 2 jogadores
   const Module = await createES({
     canvas,
     thisProgram: "/usr/bin/emulationstation/emulationstation",   // ES acha resources/ ao lado do executável
@@ -34,10 +46,10 @@
     printErr: t => console.warn("[es]", t),
     locateFile: f => f,
   });
-  const info = await bootFS(Module);
+  const info = await bootFS(Module, io ? io.fetchFrom(location.href) : undefined);
   status.textContent = `${info.files} arquivos (${info.lazy} sob demanda)`;
   // cartão desmontado (o hub responde 503 em fs/roms/...): o ES abre com as listas, mas mídia e jogos não carregam
-  const card = await fetch("fs/roms/bios/", { method: "HEAD" }).then(r => r.status, () => 0);
+  const card = io ? 200 : await fetch("fs/roms/bios/", { method: "HEAD" }).then(r => r.status, () => 0);
   if (card === 503) { status.textContent = "cartão não montado: capas e jogos indisponíveis"; status.className = "err"; }
   Module.ENV.HOME = "/home/ark";
   Object.assign(window.r36s, { Module, fs: info });

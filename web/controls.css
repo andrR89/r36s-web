@@ -1,0 +1,113 @@
+/* Controles por cima do ES e do jogo (web/controls.js): painel "Comandos", selos P1/P2, joystick de toque.
+   Visual do design aprovado (canvas Claude Design: telas Comandos e Celular). */
+@font-face { font-family: "Press Start 2P"; src: url(site/fonts/press-start-2p.woff2) format("woff2"); font-display: swap; }
+@font-face { font-family: "Space Mono"; src: url(site/fonts/space-mono-400.woff2) format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Space Mono"; src: url(site/fonts/space-mono-700.woff2) format("woff2"); font-weight: 700; font-display: swap; }
+:root { --ink: #1b1446; --ink2: #2a1f6b; --line: #4b3ab0; --pink: #ff2e88; --yellow: #ffd23f; --cyan: #2de2e6; --mint: #2ee6a6; --text: #ece6ff; --soft: #d4ccff; }
+
+/* ---- aviso de controle e selos P1/P2 (topo, à direita) */
+#r36s-toast, #r36s-badges { position: fixed; right: 24px; z-index: 40; font: 700 14px "Space Mono", monospace; pointer-events: none;
+  opacity: 0; transition: opacity .3s steps(3); }
+#r36s-toast { top: 24px; padding: 12px 18px; background: var(--cyan); color: var(--ink); display: flex; gap: 10px; align-items: center; }
+#r36s-badges { top: 76px; display: flex; gap: 8px; font-size: 13px; }
+#r36s-badges span { padding: 8px 12px; color: var(--ink); }
+#r36s-badges .p1 { background: var(--yellow); }
+#r36s-badges .p2 { background: var(--pink); }
+#r36s-toast.show, #r36s-badges.show { opacity: 1; }
+#r36s-toast:not(.show) + #r36s-badges { top: 24px; }
+
+/* ---- botão "?" */
+#r36s-help { position: fixed; bottom: 24px; right: 24px; z-index: 35; width: 48px; height: 48px; background: var(--line); color: #fff; border: 0;
+  font: 16px "Press Start 2P", monospace; cursor: pointer; opacity: .85; }
+#r36s-help:hover, #r36s-help:focus-visible { opacity: 1; outline: 3px solid var(--yellow); }
+
+/* ---- painel */
+#r36s-panel { position: fixed; inset: 0; z-index: 50; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.55);
+  font-family: "Space Mono", monospace; color: var(--text); padding: 16px; box-sizing: border-box; }
+#r36s-panel.show { display: flex; }
+#r36s-panel .box { width: 760px; max-width: 100%; max-height: 100%; overflow: auto; box-sizing: border-box; padding: 36px; background: var(--ink);
+  border: 4px solid var(--line); box-shadow: 12px 12px 0 var(--pink); display: flex; flex-direction: column; gap: 24px; }
+#r36s-panel .head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+#r36s-panel h1 { margin: 0; font: 18px "Press Start 2P", monospace; }
+#r36s-panel .tabs { display: flex; gap: 8px; }
+#r36s-panel .tabs button { padding: 8px 14px; font: 13px "Space Mono", monospace; cursor: pointer; border: 2px solid var(--line); background: transparent; color: var(--soft); }
+#r36s-panel .tabs button.on { background: var(--line); color: #fff; }
+#r36s-panel dl { margin: 0; } #r36s-panel dd { margin: 0; }
+#r36s-panel .hands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+#r36s-panel .hand { display: flex; flex-direction: column; gap: 12px; }
+#r36s-panel .cap { font-size: 12px; } #r36s-panel .cap.c { color: var(--cyan); } #r36s-panel .cap.y { color: var(--yellow); }
+#r36s-panel .lbl { font-size: 14px; color: #e8e3ff; }
+#r36s-panel .wasd { display: grid; grid-template-columns: repeat(3, 48px); gap: 6px; }
+#r36s-panel kbd { height: 48px; display: flex; align-items: center; justify-content: center; background: var(--line); font: 700 14px "Space Mono", monospace; }
+#r36s-panel dl.right { display: grid; grid-template-columns: 56px 1fr 56px 1fr; gap: 10px 12px; font-size: 14px; align-items: center; }
+#r36s-panel dl.right dt { font-weight: 700; text-align: center; padding: 8px 0; }
+#r36s-panel dl.right dt.k { background: var(--yellow); color: var(--ink); }
+#r36s-panel dl.right dt.s { background: var(--line); }
+#r36s-panel dl.extra { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 10px 16px; font-size: 14px; padding-top: 16px; border-top: 2px solid var(--line); }
+#r36s-panel .tab-touch dl.extra { grid-template-columns: auto 1fr; border-top: 0; padding-top: 0; }
+#r36s-panel dt.y { color: var(--yellow); font-weight: 700; } #r36s-panel dt.c { color: var(--cyan); font-weight: 700; }
+#r36s-panel .tab-keys, #r36s-panel .tab-pad, #r36s-panel .tab-touch { display: flex; flex-direction: column; gap: 24px; }
+#r36s-panel .padrow { display: flex; gap: 32px; align-items: center; flex-wrap: wrap; }
+#r36s-panel .padart { width: 300px; max-width: 100%; height: auto; }
+#r36s-panel .padrow dl { display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; font-size: 14px; }
+#r36s-panel .note, #r36s-panel .found { margin: 0; font-size: 13px; color: var(--soft); }
+#r36s-panel .found { color: var(--cyan); font-weight: 700; } #r36s-panel .found.none { color: var(--soft); font-weight: 400; }
+#r36s-panel .two { padding: 16px; background: var(--ink2); border: 3px solid var(--pink); display: flex; flex-direction: column; gap: 8px; }
+#r36s-panel .two span { font-weight: 700; color: var(--pink); font-size: 14px; }
+#r36s-panel .two p { margin: 0; font-size: 13px; line-height: 1.6; color: #e8e3ff; }
+#r36s-panel .foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+#r36s-panel .foot label { display: flex; gap: 10px; align-items: center; font-size: 13px; color: #e8e3ff; }
+#r36s-panel .go { padding: 12px 24px; background: var(--yellow); color: var(--ink); border: 0; font: 700 15px "Space Mono", monospace; cursor: pointer; box-shadow: 4px 4px 0 var(--cyan); }
+#r36s-panel .go:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+@media (max-width: 640px) {
+  #r36s-panel .box { padding: 20px; gap: 18px; box-shadow: 6px 6px 0 var(--pink); }
+  #r36s-panel h1 { font-size: 14px; }
+  #r36s-panel .hands { grid-template-columns: 1fr; }
+  #r36s-panel dl.extra { grid-template-columns: auto 1fr; }
+}
+
+/* ---- joystick de toque (tela Celular): paisagem = tela no meio, controles nas laterais; retrato = tela em cima */
+#r36s-touch { position: fixed; inset: 0; z-index: 30; pointer-events: none; font-family: "Space Mono", monospace; touch-action: none;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+#r36s-touch button, #r36s-touch .dpad { pointer-events: auto; touch-action: none; -webkit-tap-highlight-color: transparent; }
+#r36s-touch .tb { position: absolute; color: #fff; font: 700 16px "Space Mono", monospace; padding: 0; }
+#r36s-touch .sh { top: 12px; width: 120px; height: 44px; background: rgba(75,58,176,.85); border: 2px solid #6f5ce0; border-radius: 10px; }
+#r36s-touch .sh.l { left: 16px; } #r36s-touch .sh.r { right: 16px; }
+#r36s-touch .sh2 { top: 62px; width: 64px; height: 34px; background: rgba(75,58,176,.6); border: 2px solid #6f5ce0; border-radius: 10px; font-size: 12px; }
+#r36s-touch .sh2.l2 { left: 16px; } #r36s-touch .sh2.r2 { right: 16px; }
+#r36s-touch .dpad { position: absolute; left: 22px; top: 45%; transform: translateY(-50%); width: 132px; height: 132px; display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr)); }
+#r36s-touch .dpad i { font-style: normal; display: flex; align-items: center; justify-content: center; background: rgba(75,58,176,.85);
+  border: 2px solid #6f5ce0; color: #fff; font-size: 14px; pointer-events: none; }
+#r36s-touch .dpad .mid { background: rgba(75,58,176,.85); }
+#r36s-touch .abxy { position: absolute; right: 20px; top: 45%; transform: translateY(-50%); width: 144px; height: 144px; pointer-events: none; }
+#r36s-touch .abxy .tb { width: 48px; height: 48px; border-radius: 50%; border: 0; color: var(--ink); pointer-events: auto; }
+#r36s-touch .abxy .x { left: 48px; top: 0; } #r36s-touch .abxy .y { left: 0; top: 48px; }
+#r36s-touch .abxy .a { left: 96px; top: 48px; } #r36s-touch .abxy .b { left: 48px; top: 96px; }
+#r36s-touch .abxy .x, #r36s-touch .abxy .y { background: rgba(45,226,230,.85); }
+#r36s-touch .abxy .a, #r36s-touch .abxy .b { background: rgba(255,210,63,.9); }
+#r36s-touch .ss { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; gap: 12px; pointer-events: none; }
+#r36s-touch .pill { position: static; width: 88px; height: 44px; background: rgba(75,58,176,.9); border: 2px solid #6f5ce0; border-radius: 22px; font-size: 12px; font-weight: 400; pointer-events: auto; }
+#r36s-touch .menu { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); width: 44px; height: 44px; background: rgba(27,20,70,.8);
+  color: #fff; border: 2px solid #6f5ce0; font: 12px "Press Start 2P", monospace; pointer-events: auto; padding: 0; }
+#r36s-touch .on, #r36s-touch .dpad i.on { filter: brightness(1.5); transform: scale(.94); }
+#r36s-touch .dpad i.on { transform: none; }
+body.r36s-touch #r36s-help { display: none; }   /* no toque, "?" fica no menu ≡ */
+body.r36s-touch #r36s-badges, body.r36s-touch #r36s-toast { right: 50%; transform: translateX(50%); top: 60px; }
+body.r36s-touch #r36s-toast:not(.show) + #r36s-badges { top: 60px; }
+
+/* retrato: tela 4:3 em cima (ES e jogo), controles na metade de baixo */
+body.r36s-portrait #canvas { height: 75vw !important; width: 100% !important; margin: 0; }
+body.r36s-portrait #game { height: 75vw; bottom: auto; }
+body.r36s-portrait #r36s-touch { top: calc(75vw + 8px); }
+body.r36s-portrait #r36s-touch .menu { top: auto; bottom: 10px; left: auto; right: 16px; transform: none; }
+body.r36s-portrait #r36s-touch .dpad, body.r36s-portrait #r36s-touch .abxy { top: 50%; }
+body.r36s-portrait #r36s-touch .ss { bottom: 18px; }
+
+#r36s-sheet { position: fixed; left: 50%; top: 60px; transform: translateX(-50%); z-index: 45; display: none; flex-direction: column; min-width: 220px;
+  background: var(--ink); border: 3px solid var(--line); box-shadow: 6px 6px 0 var(--pink); }
+#r36s-sheet.show { display: flex; }
+#r36s-sheet button { padding: 14px 18px; background: transparent; color: var(--text); border: 0; border-bottom: 2px solid var(--ink2); text-align: left;
+  font: 700 14px "Space Mono", monospace; }
+#r36s-sheet button:active { background: var(--line); }
+@media (prefers-reduced-motion: reduce) { #r36s-toast, #r36s-badges { transition: none; } }
