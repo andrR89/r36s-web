@@ -1,0 +1,61 @@
+--- a/core/hw/aica/aica.cpp
++++ b/core/hw/aica/aica.cpp
+@@ -8,6 +8,9 @@
+ #include "hw/arm7/arm7.h"
+ #include "hw/arm7/arm_mem.h"
+ #ifdef __EMSCRIPTEN__
++extern double g_fly_rp[10];   // global (gles.cpp); declared inside namespace aica it was an undefined aica::g_fly_rp
++#endif
++#ifdef __EMSCRIPTEN__
+ #include <emscripten.h>
+ #endif
+ 
+@@ -92,7 +95,6 @@
+ #ifdef __EMSCRIPTEN__
+ 	// Render-phase timer [5]: ARM7 interpreter slice (fires at 44.1kHz —
+ 	// get_now pairs add ~1-2% skew; diagnostic-grade, not verdict-grade).
+-	extern double g_fly_rp[10];
+ 	double fly_t0 = emscripten_get_now();
+ 	arm::run(1);
+ 	g_fly_rp[5] += emscripten_get_now() - fly_t0;
+@@ -108,7 +110,6 @@
+ void timeStep()
+ {
+ #ifdef __EMSCRIPTEN__
+-	extern double g_fly_rp[10];
+ 	double fly_t0 = emscripten_get_now();
+ #endif
+ 	for (auto& timer : timers)
+--- a/shell/libretro/libretro.cpp
++++ b/shell/libretro/libretro.cpp
+@@ -44,6 +44,15 @@
+ 
+ #include <sys/stat.h>
+ #include <file/file_path.h>
++#ifdef __EMSCRIPTEN__
++// linked against RetroArch's libretro-common, which no longer has it
++static void fill_short_pathname_representation_web(char *out_rep, const char *in_path, size_t size)
++{
++	strlcpy(out_rep, path_basename(in_path), size);
++	path_remove_extension(out_rep);
++}
++#define fill_short_pathname_representation fill_short_pathname_representation_web
++#endif
+ 
+ #include <libretro.h>
+ 
+--- a/shell/libretro/oslib.cpp
++++ b/shell/libretro/oslib.cpp
+@@ -43,7 +43,12 @@
+ 			|| per_content_vmus == 2)
+ 	{
+ 		std::string vmuDir = vmu_dir_no_slash + std::string(path_default_slash());
++#ifdef __EMSCRIPTEN__
++		// r36s web: always <rom name>.<port>.bin, the name the device card uses (one save file per game to sync)
++		if (false)
++#else
+ 		if (settings.platform.isConsole() && !settings.content.gameId.empty())
++#endif
+ 		{
+ 			constexpr std::string_view INVALID_CHARS { " /\\:*?|<>" };
+ 			std::string vmuName = settings.content.gameId;
