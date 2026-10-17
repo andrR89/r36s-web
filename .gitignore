@@ -16,3 +16,5 @@ web/retroarch/*_libretro.js
 web/retroarch/*_libretro.wasm
 build/hub-backup/
 build/cores/
+web/retroarch/assets/
+web/retroarch/*_libretro.worker.js

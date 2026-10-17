@@ -16,7 +16,8 @@ files=(); for c in $CORES; do files+=("retroarch/${c}_libretro.js" "retroarch/${
 7z x -y -o"$X" "$ARCHIVE" "${files[@]}" >/dev/null
 cp "$X"/retroarch/*_libretro.{js,wasm} "$R/web/retroarch/"
 for c in $OWN; do
-  if [ -f "$R/build/cores/out/${c}_libretro.wasm" ]; then cp "$R/build/cores/out/${c}_libretro."{js,wasm} "$R/web/retroarch/"
+  if [ -f "$R/build/cores/out/${c}_libretro.wasm" ]; then cp "$R/build/cores/out/${c}_libretro."* "$R/web/retroarch/"
+    [ -d "$R/build/cores/out/assets/$c" ] && { mkdir -p "$R/web/retroarch/assets"; rm -rf "$R/web/retroarch/assets/$c"; cp -r "$R/build/cores/out/assets/$c" "$R/web/retroarch/assets/"; }
   else echo "AVISO: $c não compilado: rode build/build-core.sh $c" >&2; fi
 done
 echo "$DATE" > "$R/web/retroarch/NIGHTLY"

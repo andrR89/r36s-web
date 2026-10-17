@@ -212,11 +212,43 @@ async function pump() {
   } finally { sync.busy = false; }
 }
 
+// Save em árvore (PSP: memory stick em savefile_directory/PSP/SAVEDATA/<jogo>/...): o servidor guarda um arquivo por
+// jogo, então a árvore vai empacotada num blob só (<rom>.savedata): "R36T1\n" + por arquivo uma linha JSON {p,n} + n bytes.
+let saveTree = null;   // caminho no MEMFS (cores.json "saveTree", relativo a SAVES_DIR)
+function packTree(FS, root) {
+  const files = [];
+  const walk = d => { for (const n of FS.readdir(d)) { if (n === "." || n === "..") continue; const p = `${d}/${n}`;
+    const st = FS.stat(p); if (FS.isDir(st.mode)) walk(p); else files.push(p); } };
+  try { walk(root); } catch (e) { return null; }
+  if (!files.length) return null;
+  files.sort();
+  const enc = new TextEncoder(), parts = [enc.encode("R36T1\n")];
+  for (const p of files) { const d = FS.readFile(p); parts.push(enc.encode(JSON.stringify({ p: p.slice(root.length + 1), n: d.length }) + "\n"), d); }
+  const out = new Uint8Array(parts.reduce((a, x) => a + x.length, 0));
+  let o = 0; for (const x of parts) { out.set(x, o); o += x.length; }
+  return out;
+}
+function unpackTree(FS, root, blob, mkdirp) {
+  const dec = new TextDecoder();
+  if (dec.decode(blob.subarray(0, 6)) !== "R36T1\n") throw new Error("save em árvore com formato desconhecido");
+  let o = 6, n = 0;
+  while (o < blob.length) {
+    const nl = blob.indexOf(10, o); const h = JSON.parse(dec.decode(blob.subarray(o, nl))); o = nl + 1;
+    if (h.p.split("/").includes("..")) throw new Error("caminho inválido no save");
+    const p = `${root}/${h.p}`; mkdirp(p.slice(0, p.lastIndexOf("/"))); FS.writeFile(p, blob.subarray(o, o + h.n)); o += h.n; n++;
+  }
+  return n;
+}
+function readSave(FS) {
+  if (saveTree) return packTree(FS, saveTree);
+  try { return FS.readFile(srmPath); } catch (e) { return null; }   // ainda não existe
+}
+
 function checkSave() {
   const FS = state.module && state.module.FS;
   if (!FS) return;
-  let data;
-  try { data = FS.readFile(srmPath); } catch (e) { return; }   // ainda não existe
+  const data = readSave(FS);
+  if (!data) return;
   const h = hash(data);
   if (h === sync.last) return;
   sync.last = h;
@@ -357,6 +389,7 @@ async function main() {
   if (!core) return fatal("sistema sem emulador no navegador", sys ? `${sys.fullname || system}: ${sys.note || ""}` : system);
   state.core = core;
   if (sys && sys.saveExt) setSaveName(sys.saveExt);
+  if (sys && sys.saveTree) { saveTree = `${SAVES_DIR}/${sys.saveTree}`; setSaveName(".savedata"); }
 
   // 1. save pendente de uma sessão anterior que não subiu: reenvia antes de tudo
   const pending = await pendingGet();
@@ -374,7 +407,7 @@ async function main() {
     if (r.status === 200) srm = new Uint8Array(await r.arrayBuffer());
     else if (r.status !== 404) throw new Error(`HTTP ${r.status}`);
   } catch (e) { return fatal("não deu para ler o save no servidor", e.message); }
-  if (!srm) {
+  if (!srm && !saveTree) {
     const r = await fetch(fsUrl(`${dirOf(rom)}/${srmName}`)).catch(() => null);
     if (r && r.status === 200) { srm = new Uint8Array(await r.arrayBuffer()); state.srmFromCard = true; log("save inicial do cartão:", srm.length, "bytes"); }
   }
@@ -438,6 +471,15 @@ async function main() {
     if (p === rom || !(f.kind === "empty" || f.kind === "lazy")) continue;
     if (dirOf(p) === romDir || p.startsWith(SYSTEM_DIR + "/")) { mkdirp(dirOf(p)); lazyFile(FS, p, fsUrl(p), f.size); have.add(p); }
   }
+  // arquivos de apoio do núcleo (cores.json "assets": PPSSPP em system_directory/PPSSPP), sob demanda
+  if (sys && sys.assets) {
+    const idx = await fetch(`${sys.assets.url}/index.json`).then(r => r.ok ? r.json() : {}, () => ({}));
+    for (const [rel, size] of Object.entries(idx)) {
+      const p = `${sys.assets.mount}/${rel}`; mkdirp(dirOf(p));
+      lazyFile(FS, p, `${sys.assets.url}/${rel.split("/").map(encodeURIComponent).join("/")}`, size);
+    }
+    log("assets do núcleo:", Object.keys(idx).length, "arquivos em", sys.assets.mount);
+  }
   for (const [name, from] of Object.entries(coresJson.biosAliases || {})) {
     const src = manifest.files[`${SYSTEM_DIR}/${from}`];
     if (!src) continue;
@@ -475,7 +517,8 @@ async function main() {
   if (applied.length) log("overrides do cartão:", applied.join(", "));
   state.coreOptions = opts.size;
   FS.writeFile(CFG, cfg);
-  if (srm) { FS.writeFile(srmPath, srm); sync.last = hash(srm); log("save:", srm.length, "bytes"); }
+  if (srm && saveTree) { const n = unpackTree(FS, saveTree, srm, mkdirp); sync.last = hash(packTree(FS, saveTree)); log("save em árvore:", n, "arquivos"); }
+  else if (srm) { FS.writeFile(srmPath, srm); sync.last = hash(srm); log("save:", srm.length, "bytes"); }
 
   msg.style.display = "none";
   canvas.focus();
@@ -511,7 +554,7 @@ addEventListener("pointerdown", () => canvas.focus());
 // aba/janela fechando com o jogo aberto: última tentativa de subir o save
 addEventListener("pagehide", () => {
   if (state.finished || !state.module) return;
-  try { const d = state.module.FS.readFile(srmPath); if (hash(d) !== sync.last) { pendingSet(d.slice()); fetch(saveUrl, { method: "PUT", body: d, keepalive: true }); } } catch (e) {}
+  try { const d = readSave(state.module.FS); if (d && hash(d) !== sync.last) { pendingSet(d.slice()); fetch(saveUrl, { method: "PUT", body: d, keepalive: true }); } } catch (e) {}
 });
 
 main().catch(e => fatal("erro inesperado", String(e && e.stack || e)));

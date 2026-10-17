@@ -28,14 +28,35 @@ case "$name" in
     repo=https://github.com/libretro/picodrive.git; commit=1890c2932234c9d30f4cd3851d02228baae8f09e; mk=Makefile.libretro ;;
   prosystem)
     repo=https://github.com/libretro/prosystem-libretro.git; commit=8a88014287c7a01cd568067e5a557d0a2b2a051f; mk=Makefile ;;
+  ppsspp)   # fork EmulatorJS/ppsspp (receita do EmulatorJS: ffmpeg wasm próprio, pthreads, WebGL2, ASYNCIFY)
+    repo=https://github.com/EmulatorJS/ppsspp.git; commit=fa917ebd212e083912d742c830eecb242b6a98ae; mk=Makefile; dir=libretro
+    custom=ppsspp
+    RA_ARGS="ASYNC=1 HAVE_THREADS=1 PTHREAD_POOL_SIZE=32 HAVE_OPENGLES3=1 INITIAL_HEAP=536870912" ;;
   *) echo "núcleo desconhecido: $name" >&2; exit 2 ;;
 esac
 src="$B/$name"
+custom="${custom:-}"
 if [ ! -d "$src/.git" ]; then
   git clone -q "$repo" "$src"
   git -C "$src" checkout -q "$commit"
-  git -C "$src" submodule update -q --init --recursive
+  if [ "$custom" = ppsspp ]; then   # só os submódulos que o núcleo libretro usa (sem testes, MoltenVK, SDL do mac...)
+    git -C "$src" submodule update -q --init --depth 1 libretro/libretro-common ffmpeg ext/armips ext/glslang ext/SPIRV-Cross \
+      ext/discord-rpc ext/rapidjson ext/miniupnp ext/zstd ext/cpu_features ext/rcheevos ext/naett ext/libchdr ext/lua \
+      ext/OpenXR-SDK ext/libadrenotools ext/freetype ext/nanosvg ext/aemu_postoffice
+    # como libretro/emscripten/build_emscripten.sh do fork
+    sed -i 's|return getauxval(hwcap_type);|return 1;|g; s|#include <sys/auxv.h>||g' "$src/ext/cpu_features/src/hwcaps.c"
+    sed -i 's|#ifndef __linux__|#ifdef SO_NOSIGPIPE|g' "$src/ext/aemu_postoffice/client/sock_impl_linux.c"
+    # libretro-common do submódulo é antigo: path_get_size devolve int32 e o do RetroArch int64 (assinatura errada = trap)
+    sed -i 's/^int32_t path_get_size(const char \*path)/int64_t path_get_size(const char *path)/' \
+      "$src/libretro/libretro-common/include/file/file_path.h" "$src/libretro/libretro-common/file/file_path_io.c"
+    rm -rf "$src/ext/armips/ext/filesystem"; git clone -q --depth 1 https://github.com/gulrak/filesystem.git "$src/ext/armips/ext/filesystem"
+  else
+    git -C "$src" submodule update -q --init --recursive
+  fi
   [ -f "$R/patches/cores/$name.patch" ] && git -C "$src" apply "$R/patches/cores/$name.patch"
+fi
+if [ "$custom" = ppsspp ] && [ ! -f "$src/ffmpeg/linux/wasm32/lib/libavcodec.a" ]; then
+  ( cd "$src/ffmpeg" && cp ../libretro/emscripten/linux_wasm32.sh ./ && sed -i "s/-j\$(nproc)/-j$JOBS/" linux_wasm32.sh && bash linux_wasm32.sh )
 fi
 
 [ -d "$B/retroarch/.git" ] || { git clone -q https://github.com/libretro/RetroArch.git "$B/retroarch"; }
@@ -45,7 +66,14 @@ echo "== núcleo $name"
 ( cd "$src/$dir" && emmake make -j"$JOBS" -f "$mk" platform=emscripten $args )
 lib=$(ls -t "$src/$dir"/*_libretro_emscripten.{bc,a} 2>/dev/null | head -1 || true)
 [ -n "$lib" ] || { echo "sem .a/.bc do núcleo" >&2; exit 1; }
-cp -f "$lib" "$B/retroarch/libretro_emscripten.a"
+if [ "$custom" = ppsspp ]; then   # núcleo + ffmpeg num .a só (o Makefile.emscripten liga um arquivo)
+  rm -f "$B/retroarch/libretro_emscripten.a"
+  { echo "create $B/retroarch/libretro_emscripten.a"; echo "addlib $lib"
+    for l in avformat avcodec avutil swresample swscale; do echo "addlib $src/ffmpeg/linux/wasm32/lib/lib$l.a"; done
+    echo save; echo end; } | emar -M
+else
+  cp -f "$lib" "$B/retroarch/libretro_emscripten.a"
+fi
 
 echo "== RetroArch + $name ($RA_ARGS)"
 # objetos do RetroArch dependem das flags (ASYNC muda os DEFINES): limpa quando mudam
@@ -54,6 +82,12 @@ echo "$RA_ARGS" > "$stamp"
 ( cd "$B/retroarch" && rm -f "${name}_libretro.js" "${name}_libretro.wasm" &&
   emmake make -f Makefile.emscripten -j"$JOBS" LIBRETRO="$name" TARGET="${name}_libretro.js" $RA_ARGS )
 mkdir -p "$R/build/cores/out"
-cp -f "$B/retroarch/${name}_libretro."{js,wasm} "$R/build/cores/out/"
-cp -f "$B/retroarch/${name}_libretro."{js,wasm} "$R/web/retroarch/"
-ls -la "$R/web/retroarch/${name}_libretro."{js,wasm}
+for f in "$B/retroarch/${name}_libretro."{js,wasm} "$B/retroarch/${name}_libretro.worker.js"; do
+  [ -f "$f" ] && cp -f "$f" "$R/build/cores/out/" && cp -f "$f" "$R/web/retroarch/"
+done
+if [ "$custom" = ppsspp ]; then   # assets do PPSSPP (fontes flash0, ppge_atlas, lang...): system_directory/PPSSPP, sob demanda
+  A="$R/build/cores/out/assets/ppsspp"; rm -rf "$A"; mkdir -p "$A"; cp -r "$src/assets/." "$A/"
+  python3 -I -c 'import json,os,sys; d=sys.argv[1]; print(json.dumps({os.path.relpath(os.path.join(r,f),d): os.path.getsize(os.path.join(r,f)) for r,_,fs in os.walk(d) for f in fs if f!="index.json"}))' "$A" > "$A/index.json"
+  mkdir -p "$R/web/retroarch/assets"; rm -rf "$R/web/retroarch/assets/ppsspp"; cp -r "$A" "$R/web/retroarch/assets/ppsspp"
+fi
+ls -la "$R/web/retroarch/${name}_libretro."*

@@ -21,10 +21,15 @@ OWN_CORES = {
     "mupen64plus_next": "compilado aqui (build/build-core.sh: mupen64plus-libretro-nx + GLideN64, WebGL2, ASYNCIFY)",
     "prosystem": "compilado aqui (build/build-core.sh)",
     "picodrive": "compilado aqui (build/build-core.sh): o do buildbot aborta em todo jogo de 32X (mmap com assinatura errada no emscripten), corrigido",
+    "ppsspp": "compilado aqui (build/build-core.sh: fork EmulatorJS/ppsspp, pthreads + WebGL2; exige COOP/COEP); saves do memory stick sincronizados num blob por jogo",
     "melonds": "compilado aqui (build/build-core.sh: melonDS libretro, renderizador por software; BIOS/firmware livres embutidos)",
 }
 # núcleos que gravam o save como arquivo próprio (não o .srm da SRAM do RetroArch) no savefile_directory
 SAVE_EXT = {"melonds": ".sav"}
+# save em árvore (o play.js empacota num blob <rom>.savedata): memory stick do PPSSPP fica em savefile_directory
+SAVE_TREE = {"ppsspp": "PSP/SAVEDATA"}
+# arquivos de apoio servidos de web/retroarch/<url>/ (build/build-core.sh grava index.json) e montados sob demanda
+ASSETS = {"ppsspp": {"url": "assets/ppsspp", "mount": "/roms/bios/PPSSPP"}}
 # save inicial do cartão fora do padrão <rom>.srm ao lado da ROM (emulador do dArkOS fora do RetroArch)
 CARD_SAVE = {"nds": {"dir": "backup", "ext": ".dsv", "footer": "desmume"}}   # DraStic
 # sistemas cujo(s) núcleo(s) do dArkOS não existem na web, mas há outro núcleo web que roda o sistema
@@ -33,6 +38,7 @@ WEB_ALT = {
     "mame": ("mame2003_plus", "mame2010 não existe na web; romset 0.139 x 0.78 do MAME 2003-Plus: parte dos jogos não abre"),
     "supergrafx": ("geargrafx", "mednafen_supergrafx não existe na web; Geargrafx roda SuperGrafx"),
     "pico-8": ("retro8", "o dArkOS usa o PICO-8 oficial/fake08 (fora do RetroArch); Retro8 é compatibilidade parcial"),
+    "psp": ("ppsspp", "o dArkOS usa o PPSSPP standalone; aqui o núcleo libretro"),
     "nds": ("melonds", "o dArkOS usa o DraStic (fora do RetroArch); melonDS no navegador"),
 }
 # sistemas cujo núcleo web existe mas não roda o conteúdo (testado): ficam como "sem núcleo web"
@@ -59,7 +65,7 @@ LIBRARY = {
     "gearsystem": "Gearsystem", "mednafen_pce_fast": "Beetle PCE Fast", "geargrafx": "Geargrafx", "fbneo": "FinalBurn Neo",
     "fbalpha2012": "FB Alpha 2012", "mame2003_plus": "MAME 2003-Plus", "handy": "Handy", "mednafen_lynx": "Beetle Lynx",
     "pcsx_rearmed": "PCSX-ReARMed", "tia": "Tia", "retro8": "retro8", "ecwolf": "ecwolf", "scummvm": "scummvm",
-    "mupen64plus_next": "Mupen64Plus-Next", "parallel_n64": "ParaLLEl N64", "melonds": "melonDS", "prosystem": "ProSystem",
+    "mupen64plus_next": "Mupen64Plus-Next", "parallel_n64": "ParaLLEl N64", "melonds": "melonDS", "prosystem": "ProSystem", "ppsspp": "PPSSPP",
     "mednafen_ngp": "Beetle NeoPop", "mednafen_wswan": "Beetle WonderSwan", "mednafen_vb": "Beetle VB",
 }
 
@@ -170,6 +176,10 @@ def main(cfg, manifest_path, out_json, out_md):
             entry["library"] = LIBRARY.get(chosen)
             if folder in CARD_SAVE:
                 entry["cardSave"] = CARD_SAVE[folder]
+            if chosen in SAVE_TREE:
+                entry["saveTree"] = SAVE_TREE[chosen]
+            if chosen in ASSETS:
+                entry["assets"] = ASSETS[chosen]
             if chosen in SAVE_EXT:
                 entry["saveExt"] = SAVE_EXT[chosen]
         systems[folder] = entry

@@ -1,0 +1,15 @@
+diff --git a/Core/FileSystems/BlockDevices.cpp b/Core/FileSystems/BlockDevices.cpp
+index 00940ce..25c4cc9 100644
+--- a/Core/FileSystems/BlockDevices.cpp
++++ b/Core/FileSystems/BlockDevices.cpp
+@@ -253,8 +253,10 @@ BlockDevice *ConstructBlockDevice(FileLoader *fileLoader, std::string *errorStri
+ 		if (size == 4 && psarOffset < fileLoader->FileSize()) {
+ 			device = new NPDRMDemoBlockDevice(fileLoader);
+ 		}
++#ifndef __EMSCRIPTEN__   /* CHD fica fora no emscripten (o fork não compila o libchdr para a web) */
+ 	} else if (!memcmp(buffer, "MComprHD", 8)) {
+ 		device = new CHDFileBlockDevice(fileLoader);
++#endif
+ 	}
+ 
+ 	if (!device) {
