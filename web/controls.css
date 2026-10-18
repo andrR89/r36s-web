@@ -66,7 +66,8 @@
   #r36s-panel dl.extra { grid-template-columns: auto 1fr; }
 }
 /* celular deitado (412 px de altura): o painel não cabe — compacto, texto rola e o "Jogar" fica sempre à vista */
-#r36s-panel .foot { position: sticky; bottom: 0; background: var(--ink); }
+#r36s-panel .box { padding-bottom: 0 !important; }
+#r36s-panel .foot { position: sticky; bottom: 0; z-index: 1; background: var(--ink); padding: 14px 0 28px; margin-top: auto; }
 @media (max-height: 560px) {
   #r36s-panel { padding: 8px; }
   #r36s-panel .box { padding: 14px 20px 0; gap: 12px; box-shadow: 6px 6px 0 var(--pink); }
@@ -135,3 +136,32 @@ body.r36s-analog #r36s-touch .stick { display: block; }
 body.r36s-analog #r36s-touch .dpad, body.r36s-analog #r36s-touch .abxy { top: 41%; }
 body.r36s-portrait.r36s-analog #r36s-touch .stick { bottom: 76px; }
 body.r36s-portrait.r36s-analog #r36s-touch .dpad, body.r36s-portrait.r36s-analog #r36s-touch .abxy { top: 34%; }
+
+/* tamanho do joystick de toque (aba Configurar: P/M/G) */
+#r36s-touch .dpad, #r36s-touch .abxy, #r36s-touch .stick, #r36s-touch .sh, #r36s-touch .sh2, #r36s-touch .ss { zoom: var(--ts, 1); }
+
+/* ---- aba Configurar */
+#r36s-panel .tab-config { display: flex; flex-direction: column; gap: 18px; }
+#r36s-panel .cfg { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 2px solid var(--line); }
+#r36s-panel .cfg:first-child { border-top: 0; padding-top: 0; }
+#r36s-panel .cfg h2 { margin: 0; font: 12px "Press Start 2P", monospace; color: var(--yellow); }
+#r36s-panel .seg { display: flex; flex-wrap: wrap; gap: 6px; }
+#r36s-panel .seg button, #r36s-panel .reset { padding: 8px 12px; font: 13px "Space Mono", monospace; cursor: pointer; border: 2px solid var(--line);
+  background: transparent; color: var(--soft); }
+#r36s-panel .seg button.on { background: var(--line); color: #fff; }
+#r36s-panel .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 14px; }
+#r36s-panel .maps { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px; }
+#r36s-panel .map { display: flex; justify-content: space-between; gap: 8px; padding: 8px 10px; font: 13px "Space Mono", monospace; text-align: left;
+  cursor: pointer; border: 2px solid var(--line); background: var(--ink2); color: var(--text); }
+#r36s-panel .map b { color: var(--cyan); white-space: nowrap; }
+#r36s-panel .map.changed b { color: var(--yellow); }
+#r36s-panel .map.wait { border-color: var(--pink); } #r36s-panel .map.wait b { color: var(--pink); }
+#r36s-panel .slider { display: grid; grid-template-columns: 120px 1fr 56px; align-items: center; gap: 10px; font-size: 14px; }
+#r36s-panel .slider input { width: 100%; accent-color: var(--cyan); }
+#r36s-panel .slider output { text-align: right; color: var(--cyan); }
+#r36s-panel .check { display: flex; gap: 10px; align-items: center; font-size: 14px; }
+#r36s-panel .reset { align-self: flex-start; color: var(--pink); border-color: var(--pink); }
+@media (max-height: 560px) { #r36s-panel .maps { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); } }
+/* tamanho G: direcional e ABXY descem para não encostar em L2/R2 */
+#r36s-touch[data-size="g"] .dpad, #r36s-touch[data-size="g"] .abxy { top: 50%; }
+body.r36s-analog #r36s-touch[data-size="g"] .dpad, body.r36s-analog #r36s-touch[data-size="g"] .abxy { top: 47%; }

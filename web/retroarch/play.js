@@ -555,6 +555,14 @@ async function main() {
   for (const [k, v] of Object.entries((COARSE && MOBILE_CORE_FORCE[core]) || {})) { opts.set(k, v); log("celular (forçado):", k, "=", v); }
   FS.writeFile(CORE_OPTS, [...opts].map(([k, v]) => `${k} = "${v}"`).join("\n") + "\n");
   let cfg = RETROARCH_CFG + RETROARCH_PADS;
+  // analógicos (aba Configurar do site, web/settings.js): a zona morta já vem aplicada no controle mapeado e no toque
+  // (navigator.getGamepads do iframe), então a do RetroArch fica 0; a sensibilidade é a escolhida
+  let prefs = null;
+  try { prefs = JSON.parse(localStorage.getItem("r36s-controles-v1") || "null"); } catch (e) {}
+  const sens = Math.min(2, Math.max(0.5, +(prefs && prefs.analog && prefs.analog.sensitivity) || 1));
+  const wrapped = (() => { try { return parent !== window && !!parent.r36sPads; } catch (e) { return false; } })();
+  const dz = wrapped ? 0 : Math.min(0.5, Math.max(0, prefs && prefs.analog && prefs.analog.deadzone != null ? +prefs.analog.deadzone : 0.15));
+  cfg += `input_analog_deadzone = "${dz.toFixed(6)}"\ninput_analog_sensitivity = "${sens.toFixed(6)}"\n`;
   const applied = [];
   for (const t of [ovCore, ovGame]) for (const [k, v] of parseCfg(t)) if (!OVERRIDE_BLOCK.test(k)) { cfg += `${k} = "${v}"\n`; applied.push(k); }
   if (applied.length) log("overrides do cartão:", applied.join(", "));

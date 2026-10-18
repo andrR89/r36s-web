@@ -240,10 +240,10 @@ try {
     await p.screenshot({ path: `${out}/comandos-dois-controles.png` });
     await es.evaluate(() => window.r36s.controls.close());
     step("2p", { b1, keysFromPad: keys, b2, b3 });
-    check(/P1 · Teclado/.test(b1) && /P2 · Controle Xbox/.test(b1), "1 controle: teclado P1, controle P2");
+    check(/P1 · Controle Xbox/.test(b1) && /P2 · Teclado/.test(b1), "1 controle: controle P1, teclado P2 (padrão automático)");
     check(keys.includes("l"), "controle -> tecla L (A) no ES");
     check(!keys.includes("Enter") && !keys.includes("Backspace"), "Start+Select no ES não vira tecla (troca)");
-    check(/P1 · Controle Xbox/.test(b2) && /P2 · Teclado/.test(b2), "Start+Select troca P1/P2");
+    check(/P1 · Teclado/.test(b2) && /P2 · Controle Xbox/.test(b2), "Start+Select troca P1/P2");
     check(/P1 · Controle (PlayStation|Xbox)/.test(b3) && /P2 · Controle (PlayStation|Xbox)/.test(b3), "2 controles: P1/P2");
     // jogo do demo: dentro do iframe o getGamepads já vem na ordem P1, P2
     await hold(p, "l"); await p.waitForTimeout(1200); await hold(p, "s"); await p.waitForTimeout(300); await hold(p, "l");

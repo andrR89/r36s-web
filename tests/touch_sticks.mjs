@@ -1,10 +1,12 @@
 // node tests/touch_sticks.mjs
-// Analógicos de toque: aparecem só num jogo de sistema com analógico (aqui um jogo falso de N64 com um iframe que
+// Analógicos de toque no modo teclas (aba Configurar: "analógico de toque de verdade" desligado; o modo controle
+// virtual é testado em tests/touch_game.mjs): aparecem só num jogo de sistema com analógico (aqui um jogo falso de N64 com um iframe que
 // recebe as teclas) e mandam setas (esquerdo) e T/F/G/H (direito). Dois dedos: um em cada analógico.
 import { chromium } from "/home/andre/Workspace/web-ports/tools/pw/node_modules/playwright-core/index.mjs";
 const b = await chromium.launch({ executablePath: "/usr/bin/chromium", args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const c = await b.newContext({ viewport: { width: 915, height: 412 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
 const p = await c.newPage();
+await c.addInitScript(() => { if (window === window.top) localStorage.setItem("r36s-controles-v1", JSON.stringify({ analog: { touchAnalog: false } })); });
 await p.goto("http://localhost:8770/r36s/");
 await p.waitForFunction(() => window.r36s && window.r36s.ready, null, { timeout: 120000 });
 await p.evaluate(() => window.r36s.controls && window.r36s.controls.close());
@@ -15,7 +17,7 @@ await p.evaluate(() => new Promise(res => {
   const f = document.createElement("iframe");
   f.srcdoc = '<canvas id="canvas"></canvas><script>window.keys=[];for (const t of ["keydown","keyup"]) document.getElementById("canvas").addEventListener(t, e => keys.push(t[3] + e.key));<\/script>';
   f.style.cssText = "position:fixed;left:200px;top:0;width:500px;height:375px;border:0";
-  f.onload = () => { window.r36s.game = { rom: "/roms/n64/Teste.z64", iframe: f, started: true }; res(); };
+  f.onload = () => { window.r36s.game = { system: "n64", rom: "/roms/n64/Teste.z64", iframe: f, started: true }; res(); };
   document.body.append(f);
 }));
 await p.waitForTimeout(500);

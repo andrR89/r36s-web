@@ -4,10 +4,16 @@
 //    Backspace) para o ES ou para o jogo; multitoque; retrato e paisagem;
 //  - controle físico (Gamepad API): no ES vira teclas do layout (o SDL do ES não vê o controle); no jogo o RetroArch
 //    lê o controle direto (rwebpad), com P1/P2 decididos aqui e aplicados pelo navigator.getGamepads() do iframe;
-//  - 2 jogadores: 2 controles -> P1/P2; 1 controle + teclado -> teclado P1, controle P2; Start+Select no controle
-//    (no ES) troca; selos P1/P2 no topo.
+//  - 2 jogadores: 2 controles -> P1/P2; 1 controle + teclado/toque -> controle P1 (padrão; a aba Configurar inverte);
+//    Start+Select no controle (no ES) troca; selos P1/P2 no topo;
+//  - aba "Configurar" (web/config-ui.js, preferências em web/settings.js): remapear teclado e controle, jogadores,
+//    joystick de toque (tamanho, transparência, analógicos), zona morta/sensibilidade; no jogo o toque vira um
+//    controle virtual ("R36S Toque") com analógico proporcional.
 // Mapa por posição física (mapeamento "standard"): baixo = B, direita = A, esquerda = Y, cima = X, LB/RB = L/R,
 // LT/RT = L2/R2, View/Back = Select, Menu/Start = Start. No jogo, Select+Start sai (como no aparelho).
+
+import * as S from "./settings.js";
+import { configTab } from "./config-ui.js";
 
 // teclas do layout (iguais às do es_input.cfg e do retroarch.cfg web)
 export const KEYS = {
@@ -21,13 +27,13 @@ export const KEYS = {
   rsu: ["t", "KeyT", 84], rsd: ["g", "KeyG", 71], rsl: ["f", "KeyF", 70], rsr: ["h", "KeyH", 72],
 };
 // sistemas em que o joystick de toque mostra os dois analógicos (no jogo)
-const ANALOG_SYSTEMS = /^\/roms\/(n64|psp|dreamcast|psx)\//;
+const ANALOG_SYSTEMS = new Set(["n64", "psp", "dreamcast", "psx"]);
 // teclado como Jogador 2 (troca com 1 controle): as teclas do P2 no retroarch.cfg web (teclado numérico)
 const P2_CODES = { up: ["8", "Numpad8", 104], down: ["2", "Numpad2", 98], left: ["4", "Numpad4", 100], right: ["6", "Numpad6", 102],
   a: ["3", "Numpad3", 99], b: ["1", "Numpad1", 97], x: ["9", "Numpad9", 105], y: ["7", "Numpad7", 103],
   l: ["/", "NumpadDivide", 111], r: ["*", "NumpadMultiply", 106], l2: ["-", "NumpadSubtract", 109], r2: ["+", "NumpadAdd", 107],
   start: ["Enter", "NumpadEnter", 13], select: [".", "NumpadDecimal", 110] };
-const CODE_TO_BTN = Object.fromEntries(Object.entries(KEYS).filter(([b]) => P2_CODES[b]).map(([b, k]) => [k[1], b]));
+const CANON_ACTION = Object.fromEntries(Object.entries(S.CANON_KEYS).map(([a, code]) => [code, a]));
 // botões do mapeamento standard da Gamepad API -> botão do R36S (por posição)
 const PAD_MAP = { 0: "b", 1: "a", 2: "y", 3: "x", 4: "l", 5: "r", 6: "l2", 7: "r2", 8: "select", 9: "start", 12: "up", 13: "down", 14: "left", 15: "right" };
 const AXIS = 0.5;
@@ -62,11 +68,16 @@ const pads = {
   swapped: false,
   listeners: new Set(),
   // [P1, P2]: índice de controle ou "kb"
-  slots() {
-    const o = this.order;
-    if (o.length >= 2) return this.swapped ? [o[1], o[0]] : [o[0], o[1]];
-    if (o.length === 1) return this.swapped ? [o[0], "kb"] : ["kb", o[0]];
-    return ["kb", null];
+  slots() { return S.slotsFor(this.order, S.load().players, this.swapped); },
+  // controle virtual do joystick de toque (no jogo, com o analógico proporcional ligado): ocupa o lugar do "teclado"
+  touchPad: { id: "R36S Toque (STANDARD GAMEPAD Vendor: 0000 Product: 0000)", connected: true, mapping: "standard", timestamp: 0, on: false,
+    buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })), axes: [0, 0, 0, 0] },
+  gameWin: null,
+  // avisa o RetroArch (rwebpad) dos controles do iframe: ele só registra um controle no gamepadconnected
+  announce() {
+    const w = this.gameWin;
+    if (!w || w.closed) return;
+    try { for (const gp of w.navigator.getGamepads()) if (gp) { const e = new w.Event("gamepadconnected"); e.gamepad = gp; w.dispatchEvent(e); } } catch (e) {}
   },
   label(slot) { return slot === "kb" ? "Teclado" : slot == null ? "" : this.names.get(slot) || "Controle"; },
   changed() { for (const f of this.listeners) f(); },
@@ -83,28 +94,40 @@ const pads = {
   swap() { this.swapped = !this.swapped; this.changed(); },
 
   // iframe do jogo: navigator.getGamepads() devolve [P1, P2] já na ordem dos slots; teclado como P2 vira teclas do P2
+  // controles com o remapeamento aplicados (web/settings.js), no layout "standard" do R36S, e o virtual de toque
   install(win) {
     const own = win.navigator.getGamepads ? win.navigator.getGamepads.bind(win.navigator) : () => [];
-    const wrap = (gp, i) => gp && { id: gp.id, index: i, connected: gp.connected, mapping: gp.mapping, timestamp: gp.timestamp,
-      buttons: gp.buttons, axes: gp.axes, vibrationActuator: gp.vibrationActuator };
+    this.gameWin = win;
     win.navigator.getGamepads = () => {
       const real = own();
-      return this.slots().map((s, i) => (typeof s === "number" ? wrap(real[s], i) : null));
+      return this.slots().map((s, i) => {
+        if (typeof s === "number") { const m = S.mapPad(real[s]); if (m) m.index = i; return m; }
+        if (s === "kb" && this.touchPad.on) return { ...this.touchPad, index: i };
+        return null;
+      });
     };
+    // teclado no jogo: remapeamento (tecla física -> tecla do layout) e teclado como Jogador 2 (teclas do teclado numérico)
     const held = new Set();
-    const p2 = (type, e) => {
-      if (!e.isTrusted || this.slots()[1] !== "kb") return;
-      const b = CODE_TO_BTN[e.code];
-      if (!b) return;
-      if (type === "keydown") held.add(e.code); else held.delete(e.code);
+    const onKey = (type, e) => {
+      if (!e.isTrusted) return;
+      const t = S.keyTable(), a = t.changed ? t.byCode.get(e.code) : CANON_ACTION[e.code], dead = t.changed && t.dead.has(e.code);
+      const kbP2 = this.slots()[1] === "kb";
+      if (!a && !dead) return;                                           // fora do layout (Esc, F5, ...): segue
+      if (!dead && !kbP2 && S.CANON_KEYS[a] === e.code) return;          // nada a traduzir (o play.js cuida de Select+Start)
       e.stopImmediatePropagation(); e.preventDefault();
-      if (held.has("Backspace") && held.has("Enter")) { held.clear(); return sendTo(win, "quit", "keydown", () => sendTo(win, "quit", "keyup")); }
-      const [key, code, keyCode] = P2_CODES[b];
+      if (dead || e.repeat) return;
+      if (type === "keydown") held.add(a); else held.delete(a);
+      if (held.has("select") && held.has("start")) { held.clear(); return sendTo(win, "quit", "keydown", () => sendTo(win, "quit", "keyup")); }
+      if (!kbP2) return sendTo(win, a, type);
+      if (!P2_CODES[a]) return;
+      const [key, code, keyCode] = P2_CODES[a];
       const c = win.document.getElementById("canvas") || win.document;
       c.dispatchEvent(new win.KeyboardEvent(type, { key, code, keyCode, which: keyCode, location: 3, bubbles: true, cancelable: true }));
     };
-    win.addEventListener("keydown", e => p2("keydown", e), true);
-    win.addEventListener("keyup", e => p2("keyup", e), true);
+    win.addEventListener("keydown", e => onKey("keydown", e), true);
+    win.addEventListener("keyup", e => onKey("keyup", e), true);
+    win.addEventListener("load", () => this.announced = false);
+    this.announced = false;
   },
 };
 
@@ -137,6 +160,17 @@ export function installControls({ canvas, siteMode = false, site = null }) {
   navigator.getGamepads = () => [];
   addEventListener("gamepadconnected", e => { e.stopImmediatePropagation(); pads.connect(e.gamepad); }, true);
   addEventListener("gamepaddisconnected", e => { e.stopImmediatePropagation(); pads.disconnect(e.gamepad.index); }, true);
+  // teclado no ES: remapeamento (tecla física -> tecla do layout). Antes do keepFocus (que escuta no document).
+  for (const type of ["keydown", "keyup"]) addEventListener(type, e => {
+    if (!e.isTrusted || state.panel || window.r36s.game) return;
+    const t = S.keyTable();
+    if (!t.changed) return;
+    const a = t.byCode.get(e.code);
+    if (t.dead.has(e.code)) { e.stopImmediatePropagation(); e.preventDefault(); return; }
+    if (!a || S.CANON_KEYS[a] === e.code) return;
+    e.stopImmediatePropagation(); e.preventDefault();
+    if (!e.repeat) sendTo(window, a, type);
+  }, true);
 
   // ---- selos P1/P2 + aviso de controle conectado
   const toast = el("div", { id: "r36s-toast", role: "status" });
@@ -169,13 +203,19 @@ export function installControls({ canvas, siteMode = false, site = null }) {
     pads.scan();
     const inGame = !!window.r36s.game;
     if (inGame !== prevGame) {
-      document.body.classList.toggle("r36s-analog", inGame && ANALOG_SYSTEMS.test(window.r36s.game.rom || ""));
+      sticks();
       prevGame = inGame; releaseES(); if (!inGame) render(); else { clearTimeout(badgeTimer); badgeTimer = setTimeout(() => badges.classList.remove("show"), 5000); } }
+    // jogo começou (o RetroArch já escuta): avisa dos controles do iframe, inclusive o virtual de toque
+    const g = window.r36s.game;
+    const tpOn = touch && !!(g && g.iframe) && S.load().analog.touchAnalog;
+    if (tpOn !== pads.touchPad.on) { pads.touchPad.on = tpOn; pads.announced = false; }
+    if (g && g.started && g.iframe && !pads.announced) { pads.announced = true; pads.announce(); }
     if (inGame || state.panel) return padsForPanel();
     const now = new Set();
-    for (const gp of nativeGetPads()) {
-      if (!gp || !gp.connected) continue;
-      gp.buttons.forEach((b, i) => { if (PAD_MAP[i] && (b.pressed || b.value > 0.5)) now.add(PAD_MAP[i]); });
+    for (const raw of nativeGetPads()) {
+      if (!raw || !raw.connected) continue;
+      const gp = S.mapPad(raw);
+      gp.buttons.forEach((b, i) => { if (PAD_MAP[i] && b.pressed) now.add(PAD_MAP[i]); });
       const [x = 0, y = 0] = gp.axes;
       if (x < -AXIS) now.add("left"); if (x > AXIS) now.add("right");
       if (y < -AXIS) now.add("up"); if (y > AXIS) now.add("down");
@@ -196,22 +236,40 @@ export function installControls({ canvas, siteMode = false, site = null }) {
   function releaseES() { for (const b of state.esHeld) if (b !== "select") sendTo(window, b, "keyup"); state.esHeld.clear(); selectUsed = false; }
   // com o painel aberto, A/Start do controle fecham o painel
   let panelPrev = new Set();
+  let bindReady = false;
   function padsForPanel() {
     if (!state.panel) return;
+    if (state.padBinding) {   // "aperte no controle": espera tudo solto, depois pega o primeiro botão/eixo
+      let src = null;
+      for (const gp of nativeGetPads()) if (gp && gp.connected && (src = S.padActive(gp))) break;
+      if (!src) bindReady = true;
+      else if (bindReady) { bindReady = false; state.padBinding(src); }
+      panelPrev = new Set([1, 9]);   // não fecha o painel com o botão que acabou de ser gravado
+      return;
+    }
+    bindReady = false;
     const now = new Set();
     for (const gp of nativeGetPads()) if (gp && gp.connected) gp.buttons.forEach((b, i) => { if (b.pressed) now.add(i); });
     if ((now.has(1) && !panelPrev.has(1)) || (now.has(9) && !panelPrev.has(9))) closePanel();
     panelPrev = now;
   }
   requestAnimationFrame(poll);
+  // analógicos de toque: modo da aba Configurar (auto = só nos sistemas com analógico)
+  function sticks() {
+    const g = window.r36s.game, sys = g && (g.system || ((g.rom || "").match(/^\/roms\/([^/]+)\//) || [])[1]);
+    const mode = S.load().touch.sticks;
+    document.body.classList.toggle("r36s-analog", !!g && (mode === "sempre" || (mode === "auto" && ANALOG_SYSTEMS.has(sys))));
+  }
+  S.onChange(() => { sticks(); pads.changed(); if (state.applyTouch) state.applyTouch(); });
 
   // ---- painel "Comandos"
   const panel = el("div", { id: "r36s-panel", role: "dialog", "aria-modal": "true", "aria-labelledby": "r36s-panel-title" });
   let tab = touch ? "touch" : "keys";
   const dontShow = el("input", { type: "checkbox" });
   function refreshPanel() {
-    const tabs = [["keys", "Teclado"], ["pad", "Controle"]].concat(touch ? [["touch", "Toque"]] : []);
-    const body = tab === "keys" ? keysTab() : tab === "pad" ? padTab() : touchTab();
+    const tabs = [["keys", "Teclado"], ["pad", "Controle"]].concat(touch ? [["touch", "Toque"]] : []).concat([["config", "Configurar"]]);
+    const body = tab === "keys" ? keysTab() : tab === "pad" ? padTab() : tab === "touch" ? touchTab()
+      : configTab({ state, pads, refresh: () => { const box = panel.querySelector(".box"), y = box ? box.scrollTop : 0; refreshPanel(); const nb = panel.querySelector(".box"); if (nb) nb.scrollTop = y; } });
     panel.replaceChildren(el("div", { class: "box" },
       el("div", { class: "head" },
         el("h1", { id: "r36s-panel-title", text: "Comandos" }),
@@ -230,6 +288,7 @@ export function installControls({ canvas, siteMode = false, site = null }) {
   }
   function closePanel() {
     if (!state.panel) return;
+    state.binding = null; state.padBinding = null; state.bindingAction = null;
     state.panel = false; panel.classList.remove("show");
     if (dontShow.checked) store.set("r36s-comandos-off", "1");
     const w = target(); try { (w === window ? canvas : w.document.getElementById("canvas")).focus(); } catch (e) {}
@@ -239,6 +298,7 @@ export function installControls({ canvas, siteMode = false, site = null }) {
   for (const type of ["keydown", "keyup"]) addEventListener(type, e => {
     if (!state.panel) return;
     e.stopImmediatePropagation();   // nem o ES (keepFocus repassa teclas ao canvas) nem o jogo veem
+    if (state.binding) { e.preventDefault(); if (type === "keydown" && !e.repeat) state.binding(e); return; }   // remapeando
     if (type === "keydown" && (e.key === "Enter" || e.key === "Escape")) { e.preventDefault(); closePanel(); }
     else if (e.key !== "Tab" && !(e.key === " " && /^(INPUT|BUTTON)$/.test(e.target.tagName))) e.preventDefault();
   }, true);
@@ -288,7 +348,7 @@ function padTab() {
         ...pair("LB · RB", "L · R", "y"), ...pair("LT · RT", "L2 · R2", "y"), ...pair("View + Menu", "Sair do jogo", "c"))),
     el("p", { class: "note", text: "Os botões seguem a posição física do R36S, não a letra impressa no controle." }),
     el("div", { class: "two" }, el("span", { text: "2 JOGADORES" }),
-      el("p", { text: "Conecte um segundo controle e ele vira o Jogador 2 sozinho. Com um controle só, o teclado fica de Jogador 1 e o controle de Jogador 2. Aperte Start + Select no controle para trocar de lugar." })));
+      el("p", { text: "Conecte um segundo controle e ele vira o Jogador 2 sozinho. Com um controle só, ele é o Jogador 1 e o teclado (ou o toque) o Jogador 2. Aperte Start + Select no controle para trocar de lugar, ou mude na aba Configurar." })));
 }
 function touchTab() {
   return el("div", { class: "tab-touch" },
@@ -392,17 +452,62 @@ function installTouch(state, { openPanel, siteMode, site }) {
   const shown = new Map();   // botão -> elemento(s) acesos
   for (const e of pad.querySelectorAll("[data-btn]")) shown.set(e.dataset.btn, [e]);
   for (const [c, b] of [["u", "up"], ["d", "down"], ["l", "left"], ["r", "right"]]) shown.set(b, [dpad.querySelector("." + c)]);
+  // no jogo, com o analógico proporcional ligado, o toque é o controle virtual (pads.touchPad) e não manda teclas
+  const padMode = () => pads.touchPad.on;
+  const STD = { b: 0, a: 1, y: 2, x: 3, l: 4, r: 5, l2: 6, r2: 7, select: 8, start: 9, up: 12, down: 13, left: 14, right: 15 };
+  const DIRS = ["up", "down", "left", "right"];
+  const keysDown = new Set();   // teclas realmente apertadas (modo teclas)
+  // eixos dos analógicos: deslocamento do dedo / raio, no círculo, com zona morta radial
+  const stickAxes = () => {
+    const out = [0, 0, 0, 0], dz = S.load().analog.deadzone;
+    for (const q of rects || []) if (q.stick) for (const [x, y] of fingerPos.values()) {
+      if (x < q.l || x > q.r || y < q.t || y > q.b) continue;
+      let dx = (x - q.cx) / (q.w / 2), dy = (y - q.cy) / (q.w / 2);
+      const m = Math.hypot(dx, dy);
+      if (m > 1) { dx /= m; dy /= m; }
+      const k = m <= dz ? 0 : Math.min(1, (Math.min(m, 1) - dz) / (1 - dz)) / (Math.min(m, 1) || 1);
+      const i = q.stick === "l" ? 0 : 2;
+      out[i] = +(dx * k).toFixed(3); out[i + 1] = +(dy * k).toFixed(3);
+      break;
+    }
+    return out;
+  };
+  const updatePad = now => {
+    const tp = pads.touchPad;
+    if (!tp.on) return;
+    const dpadStick = S.load().touch.dpadAsStick;
+    tp.buttons.forEach((b, i) => { b.pressed = false; b.touched = false; b.value = 0; });
+    for (const b of now) if (STD[b] != null && !(dpadStick && DIRS.includes(b))) { const k = tp.buttons[STD[b]]; k.pressed = k.touched = true; k.value = 1; }
+    const ax = stickAxes();
+    if (dpadStick && !ax[0] && !ax[1]) { ax[0] = (now.has("right") ? 1 : 0) - (now.has("left") ? 1 : 0); ax[1] = (now.has("down") ? 1 : 0) - (now.has("up") ? 1 : 0); }
+    tp.axes = ax; tp.timestamp++;
+  };
   const sync = () => {
     const now = new Set();
     for (const s of fingers.values()) for (const b of s) now.add(b);
-    const held = state.touchHeld, game = !!window.r36s.game;
-    if (now.size === held.size && [...now].every(b => held.has(b))) return;   // nada mudou
-    // Select+Start no toque, durante o jogo: sai (o player só aceita a combinação de teclas reais)
-    if (game && now.has("select") && now.has("start") && !(held.has("select") && held.has("start"))) tap("quit");
-    for (const b of held) if (!now.has(b)) { press(b, false); for (const e of shown.get(b) || []) e.classList.remove("on"); }
-    for (const b of now) if (!held.has(b)) { press(b, true); for (const e of shown.get(b) || []) e.classList.add("on"); }
-    state.touchHeld = now;
+    const held = state.touchHeld, game = !!window.r36s.game, pm = padMode();
+    if (!(now.size === held.size && [...now].every(b => held.has(b)))) {
+      // Select+Start no toque, durante o jogo: sai (com o controle virtual, o RetroArch sai sozinho pela combinação 4)
+      if (game && !pm && now.has("select") && now.has("start") && !(held.has("select") && held.has("start"))) tap("quit");
+      for (const b of held) if (!now.has(b)) for (const e of shown.get(b) || []) e.classList.remove("on");
+      for (const b of now) if (!held.has(b)) for (const e of shown.get(b) || []) e.classList.add("on");
+      state.touchHeld = now;
+    }
+    // teclas: no ES sempre; no jogo só sem o controle virtual
+    const want = pm ? new Set() : now;
+    for (const b of [...keysDown]) if (!want.has(b)) { keysDown.delete(b); press(b, false); }
+    for (const b of want) if (!keysDown.has(b)) { keysDown.add(b); press(b, true); }
+    updatePad(now);
   };
+  // tamanho e transparência (aba Configurar)
+  state.applyTouch = () => {
+    const t = S.load().touch;
+    pad.style.setProperty("--ts", { p: 0.8, m: 1, g: 1.2 }[t.size] || 1);
+    pad.dataset.size = t.size;
+    pad.style.opacity = t.opacity;
+    rects = null;
+  };
+  state.applyTouch();
   let moved = false;
   const flush = () => { moved = false; sync(); drawKnobs(); };
   pad.addEventListener("pointerdown", e => {
