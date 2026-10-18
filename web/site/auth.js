@@ -1,12 +1,15 @@
 // Login com Google Identity Services (token client, popup). O token de acesso fica só em memória — recarregar a
 // página pede "Entrar" de novo (o Google não pergunta de novo se já consentiu). Renovação: requestAccessToken com
 // prompt vazio (silenciosa quando o consentimento existe), antes de vencer e quando a API responde 401.
+// Sem toque na tela o navegador bloqueia o popup (no celular, às vezes sem avisar e a promessa nunca volta): se a
+// renovação silenciosa não volta em SILENT_MS, cfg.askGesture(renew) pede um toque e renova dentro dele.
 // Modo "mock" (testes): token fixo, sem rede.
 
 const SKEW = 120;   // s: renova 2 min antes de vencer
+const SILENT_MS = 8000;
 
 export function createAuth(cfg) {
-  let token = "", expiresAt = 0, hint = "", client = null, pending = null;
+  let token = "", expiresAt = 0, hint = "", client = null, pending = null, gesture = null;
   const listeners = new Set();
   const emit = () => { for (const f of listeners) f(!!token); };
 
@@ -19,9 +22,9 @@ export function createAuth(cfg) {
     });
   }
 
-  function request(prompt) {
+  function request(prompt, timeoutMs = 0) {
     if (cfg.auth === "mock") {
-      token = cfg.mockToken; expiresAt = Date.now() / 1000 + 3600; emit();
+      token = cfg.mockToken; expiresAt = Date.now() / 1000 + (cfg.mockExpiresIn || 3600); emit();
       return Promise.resolve(token);
     }
     if (pending) return pending;
@@ -36,12 +39,22 @@ export function createAuth(cfg) {
       };
       client.error_callback = e => reject(new Error(e && e.type === "popup_closed" ? "janela do Google fechada" : (e && e.message) || "login cancelado"));
       client.requestAccessToken({ prompt, login_hint: hint || undefined });
+      if (timeoutMs) setTimeout(() => reject(new Error("o Google não respondeu (popup bloqueado?)")), timeoutMs);
     })).finally(() => { pending = null; });
     return pending;
   }
 
+  // renovação: silenciosa; se falhar, um toque do usuário (uma pergunta só para todos que esperam o token)
+  async function renew() {
+    try { return await request("", cfg.silentMs || SILENT_MS); }
+    catch (e) {
+      if (!cfg.askGesture) throw e;
+      return gesture || (gesture = cfg.askGesture(() => request("")).finally(() => { gesture = null; }));
+    }
+  }
+
   // renovação antecipada: com a aba aberta, um pouco antes de vencer
-  setInterval(() => { if (token && cfg.auth !== "mock" && expiresAt - Date.now() / 1000 < SKEW * 2) request("").catch(() => {}); }, 60000);
+  setInterval(() => { if (token && cfg.auth !== "mock" && expiresAt - Date.now() / 1000 < SKEW * 2) request("", SILENT_MS).catch(() => {}); }, 60000);
 
   return {
     get signedIn() { return !!token; },
@@ -51,7 +64,7 @@ export function createAuth(cfg) {
     async getToken(force) {
       if (token && !force && expiresAt - Date.now() / 1000 > SKEW) return token;
       if (!token && !force) throw Object.assign(new Error("não logado"), { status: 401 });
-      return request("");
+      return renew();
     },
     peekToken: () => token,
     signOut() {

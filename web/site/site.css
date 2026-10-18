@@ -199,3 +199,12 @@ footer .wrap { padding-top: 28px; padding-bottom: 28px; display: flex; flex-wrap
   .lib-card img { width: 100%; height: auto; aspect-ratio: 4 / 3; }
   .lib h1 { font-size: 16px; }
 }
+
+/* ---------- login vencido (web/site/site.js askGesture): por cima do ES e do jogo */
+#renew { position: fixed; inset: 0; z-index: 2147483647; display: grid; place-items: center; padding: 16px; background: rgba(18, 12, 51, .85); }
+.renew-box { max-width: 420px; padding: 24px; background: var(--ink2); border: 3px solid var(--line); text-align: center; }
+.renew-box h2 { margin: 0 0 16px; font-size: 16px; color: var(--yellow); }
+.renew-box p { margin: 0 0 20px; line-height: 1.5; color: var(--soft); }
+.renew-box .gbtn { width: 100%; }
+.renew-box .renew-err { margin: 16px 0 0; color: var(--pink); }
+.renew-box .renew-err:empty { display: none; }

@@ -22,10 +22,27 @@ const h = (tag, attrs = {}, ...kids) => {
 
 const put = (box, ...kids) => box.replaceChildren(...kids.filter(k => k != null));   // replaceChildren(null) escreveria "null"
 
-const auth = createAuth(cfg);
+// o login vence em 1 h e renovar abre um popup do Google, que só sai com um toque: aviso por cima de tudo (até do jogo)
+function askGesture(renew) {
+  return new Promise(resolve => {
+    const err = h("p", { class: "renew-err", role: "alert" });
+    const btn = h("button", { type: "button", class: "gbtn", text: "Continuar com o Google", onclick: async () => {
+      btn.disabled = true; err.textContent = "";
+      try { const t = await renew(); box.remove(); resolve(t); }
+      catch (e) { err.textContent = `Não deu: ${e.message}. Toque de novo.`; btn.disabled = false; }
+    } });
+    const box = h("div", { id: "renew", role: "dialog", "aria-modal": "true", "aria-labelledby": "renew-t" },
+      h("div", { class: "renew-box" }, h("h2", { id: "renew-t", class: "pixel", text: "Login vencido" }),
+        h("p", { text: "O acesso ao Google Drive dura 1 hora. Toque para renovar e o jogo continua de onde parou." }), btn, err));
+    document.body.append(box);
+    btn.focus();
+  });
+}
+const auth = createAuth({ ...cfg, askGesture });
 const drive = createDrive({ api: cfg.api, getToken: f => auth.getToken(f), peekToken: () => auth.peekToken() });
 const app = { state: "home", libraries: null, library: null, user: null, error: null };
 window.r36sApp = app;   // inspeção nos testes
+app.askGesture = askGesture;
 
 // ponte para o ES (iframe): mesma origem
 window.r36sSite = {
