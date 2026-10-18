@@ -58,18 +58,27 @@ function freezer(Module) {
     const r = gl.getBoundingClientRect();
     Object.assign(snap.style, { left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px" });
   };
+  let broken = false;
   Module.r36sFrameDone = () => {
-    if (window.r36s && window.r36s.game) { has = false; return; }   // com jogo aberto o ES não desenha
-    if (!gl.width || !gl.height) return;
-    if (!snap) place();
-    if (snap.width !== gl.width || snap.height !== gl.height) { snap.width = gl.width; snap.height = gl.height; }
-    ctx.drawImage(gl, 0, 0);   // mesmo task do quadro: o drawing buffer ainda está inteiro
-    has = true;
-    if (shown) { shown = false; snap.style.display = "none"; }
+    if (broken) return;
+    try {
+      if (window.r36s && window.r36s.game) { has = false; return; }   // com jogo aberto o ES não desenha
+      if (!gl.width || !gl.height) return;
+      if (!snap) place();
+      if (snap.width !== gl.width || snap.height !== gl.height) { snap.width = gl.width; snap.height = gl.height; }
+      ctx.drawImage(gl, 0, 0);   // mesmo task do quadro: o drawing buffer ainda está inteiro
+      has = true;
+      if (shown) { shown = false; snap.style.display = "none"; }
+    } catch (e) {
+      // algum navegador recusou a cópia: desliga (volta a piscar, mas o ES segue)
+      broken = true; has = false;
+      if (snap) snap.style.display = "none";
+      console.warn("[r36s] cópia do quadro desligada:", e);
+    }
   };
   return {
     show() {
-      if (!has || shown) return false;
+      if (broken || !has || shown) return false;
       place(); snap.style.display = "block"; shown = true;
       return true;
     },
