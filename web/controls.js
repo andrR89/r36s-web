@@ -148,6 +148,12 @@ function press(btn, down) {
   if (w) sendTo(w, btn, down ? "keydown" : "keyup");
 }
 function tap(btn) { const w = target(); if (w) sendTo(w, btn, "keydown", () => sendTo(w, btn, "keyup")); }
+// sair do jogo: ainda carregando, cancela pela ponte (o RetroArch não começou e não ouve a tecla de sair)
+function quitGame() {
+  const g = window.r36s && window.r36s.game;
+  if (g && !g.started && g.abort) return g.abort();
+  tap("quit");
+}
 
 // ---------------------------------------------------------------- instalação
 export function installControls({ canvas, siteMode = false, site = null }) {
@@ -210,6 +216,10 @@ export function installControls({ canvas, siteMode = false, site = null }) {
     const tpOn = touch && !!(g && g.iframe) && S.load().analog.touchAnalog;
     if (tpOn !== pads.touchPad.on) { pads.touchPad.on = tpOn; pads.announced = false; }
     if (g && g.started && g.iframe && !pads.announced) { pads.announced = true; pads.announce(); }
+    // controle com o jogo ainda carregando: Select+Start cancela (o RetroArch ainda não lê o controle)
+    if (g && !g.started && g.abort && !state.panel) {
+      for (const raw of nativeGetPads()) { const m = raw && raw.connected && S.mapPad(raw); if (m && m.buttons[8].pressed && m.buttons[9].pressed) { g.abort(); break; } }
+    }
     if (inGame || state.panel) return padsForPanel();
     const now = new Set();
     for (const raw of nativeGetPads()) {
@@ -380,7 +390,7 @@ function installTouch(state, { openPanel, siteMode, site }) {
   menuBtn.addEventListener("click", () => {
     const game = !!window.r36s.game;
     sheet.replaceChildren(item("Comandos", openPanel),
-      ...(game ? [item("Menu do RetroArch", () => tap("menu")), item("Salvar estado", () => tap("save")), item("Carregar estado", () => tap("load")), item("Sair do jogo", () => tap("quit"))] : []),
+      ...(game ? [item("Menu do RetroArch", () => tap("menu")), item("Salvar estado", () => tap("save")), item("Carregar estado", () => tap("load")), item("Sair do jogo", quitGame)] : []),
       item("Tela cheia", () => (document.fullscreenElement ? document.exitFullscreen() : (parent !== window ? parent.document.documentElement : document.documentElement).requestFullscreen()).catch(() => {})),
       ...(siteMode && site && site.exit ? [item("Voltar ao site", () => site.exit())] : []),
       item("Fechar", () => {}));
@@ -488,7 +498,7 @@ function installTouch(state, { openPanel, siteMode, site }) {
     const held = state.touchHeld, game = !!window.r36s.game, pm = padMode();
     if (!(now.size === held.size && [...now].every(b => held.has(b)))) {
       // Select+Start no toque, durante o jogo: sai (com o controle virtual, o RetroArch sai sozinho pela combinação 4)
-      if (game && !pm && now.has("select") && now.has("start") && !(held.has("select") && held.has("start"))) tap("quit");
+      if (game && (!pm || !window.r36s.game.started) && now.has("select") && now.has("start") && !(held.has("select") && held.has("start"))) quitGame();
       for (const b of held) if (!now.has(b)) for (const e of shown.get(b) || []) e.classList.remove("on");
       for (const b of now) if (!held.has(b)) for (const e of shown.get(b) || []) e.classList.add("on");
       state.touchHeld = now;

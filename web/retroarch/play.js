@@ -28,6 +28,9 @@ const MOBILE_CORE_FORCE = {
 const CARD_RA = "../fs/home/ark/.config/retroarch";   // cópia dos cfgs do ROOTFS (data/mkcard.py)
 const SYNC_MS = 2000;
 const EAGER_MAX = 48 << 20;   // ROM até 48 MB: baixa inteira; acima (CHD/ISO): sob demanda
+// .7z/.zip o núcleo lê inteiro de qualquer jeito (FBNeo, MAME...): baixa tudo antes, em pedaços paralelos e com
+// progresso, em vez de 4 MB por vez com a tela parada (kof2000.7z: 88 MB = 22 pedidos em série ao Drive)
+const ARCHIVE = /\.(7z|zip)$/i, ARCHIVE_MAX = 512 << 20, PART = 8 << 20, PARALLEL = 6;
 const CHUNK = 4 << 20;        // pedaço dos arquivos sob demanda
 
 const params = new URLSearchParams(location.search);
@@ -341,6 +344,38 @@ async function loadManifest() {
   return r.json();
 }
 
+// Arquivo inteiro por Range em pedaços paralelos, com progresso na tela
+async function fetchParts(url, size, name) {
+  const buf = new Uint8Array(size), mb = n => (n / 1e6).toFixed(0);
+  let got = 0, next = 0;
+  const label = () => show("Baixando o jogo…", `${name} · ${mb(got)} / ${mb(size)} MB`);
+  label();
+  const worker = async () => {
+    while (next < size) {
+      const from = next, to = Math.min(size, from + PART) - 1;
+      next = to + 1;
+      for (let attempt = 0; ; attempt++) {
+        const r = await fetch(url, { headers: { Range: `bytes=${from}-${to}` } });
+        if (r.status === 206 || (r.status === 200 && from === 0 && to === size - 1)) {
+          const d = new Uint8Array(await r.arrayBuffer());
+          buf.set(d.subarray(0, to - from + 1), from);
+          got += Math.min(d.length, to - from + 1); lazyStats.requests++; lazyStats.bytes += d.length;
+          label();
+          break;
+        }
+        if (r.status === 200) {   // servidor sem Range: o arquivo inteiro de uma vez
+          const d = new Uint8Array(await r.arrayBuffer());
+          buf.set(d.subarray(0, size)); got = size; next = size; return;
+        }
+        if (attempt >= 3) throw new Error(r.status === 503 ? "cartão não montado" : `ROM HTTP ${r.status}`);
+        await new Promise(res => setTimeout(res, 800 * (attempt + 1)));
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: PARALLEL }, worker));
+  return buf.buffer;
+}
+
 // Arquivo do MEMFS cujo conteúdo vem do servidor por Range, em pedaços de 4 MB, na hora da leitura. O núcleo lê com
 // fread síncrono: XHR síncrono com charset x-user-defined (o modo arraybuffer síncrono não existe fora de worker).
 function lazyFile(FS, path, url, size) {
@@ -477,7 +512,7 @@ async function main() {
     [romData, factory, coreOpts, cardOverride] = await Promise.all([
       romSize <= EAGER_MAX || SHEET.test(rom)
         ? fetch(fsUrl(rom)).then(r => { if (!r.ok) throw new Error(r.status === 503 ? "cartão não montado" : `ROM HTTP ${r.status}`); return r.arrayBuffer(); })
-        : null,
+        : ARCHIVE.test(rom) && romSize <= ARCHIVE_MAX ? fetchParts(fsUrl(rom), romSize, romName) : null,
       import(`./${core}_libretro.js`).then(m => m.default),
       textOr404(`${CARD_RA}/retroarch-core-options.cfg`),
       lib ? Promise.all([`${lib}/${lib}.cfg`, `${lib}/${lib}.opt`, `${lib}/${stem}.cfg`, `${lib}/${stem}.opt`]
@@ -594,6 +629,8 @@ addEventListener("keydown", e => {
     // núcleo que quebra ao descarregar (ppsspp: "memory access out of bounds" no unload com pthreads): sai direto, sem
     // passar pelo quit do RetroArch (o save dele já está nos arquivos do memory stick; o finish sobe o blob)
     if (state.directExit) { finish(0, "saída direta"); return; }
+    // ainda baixando: o RetroArch não começou; avisa a página do ES para fechar
+    if (!state.started && embedded) { postParent({ type: "r36s-exit", code: 1, saved: true }); return; }
     sendKey("keydown", "F12");
     setTimeout(() => sendKey("keyup", "F12"), 120);
   }

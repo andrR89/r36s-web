@@ -42,6 +42,8 @@ export async function installBridge(Module, canvas) {
       canvas.focus();
       resolve(code);
     };
+    // sair antes de o jogo começar (ainda baixando): o RetroArch nem escuta a tecla de sair
+    game.abort = why => finish(1, why || "cancelado no carregamento");
     const onMsg = e => {
       if (e.source !== f.contentWindow || e.origin !== location.origin || !e.data) return;
       if (e.data.type === "r36s-started") game.started = true;
