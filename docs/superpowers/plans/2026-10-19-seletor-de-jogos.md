@@ -401,7 +401,7 @@ Manter o `setUp` atual (a árvore de exemplo e a listagem pelo mock), trocando a
     def test_info_and_library_written(self):
         info = json.load(open(os.path.join(self.out, "info.json")))
         self.assertEqual((info["systems"], info["games"]), (1, 2))
-        self.assertTrue(os.path.isfile(os.path.join(self.out, "library.json")))
+        self.assertTrue(os.path.isfile(os.path.join(self.out, "library.json.gz")))
 ```
 
 (`Jogo.7z` e `Disco.cue` são os 2 jogos do snes; o n64 não tem jogos.)
@@ -422,7 +422,7 @@ MEDIA_DIRS = ("/images/", "/media/", "/videos/", "/manuals/", "/snap/")
 
 class CardRules:
     """Só o que o emulador (retroarch/play.js) usa: ROMs, arquivos de apoio das pastas de sistema, BIOS e as configs
-    do RetroArch do cartão. Capas e metadados vão pelo library.json."""
+    do RetroArch do cartão. Capas e metadados vão pelo library.json.gz."""
     def __init__(self, systems):
         self.systems = sorted(systems.items(), key=lambda kv: -len(kv[0]))   # prefixo mais longo primeiro
 
@@ -455,7 +455,7 @@ Expected: tudo OK.
 - [ ] **Step 6: Regerar o índice do hub e medir**
 
 Run: `python3 data/mkmanifest.py card web/data`
-Expected: algo como `7xxx arquivos, eager.bin 0.1 MB, manifest.json 1.x MB`, e `web/data/library.json` criado. Medir: `python3 -c "import os,gzip;b=open('web/data/library.json','rb').read();print(len(b)//1024,'KB',len(gzip.compress(b))//1024,'KB gz')"` — anotar no commit.
+Expected: algo como `7xxx arquivos, eager.bin 0.1 MB, manifest.json 1.x MB`, e `web/data/library.json.gz` criado. Medir: `python3 -c "import os,gzip;b=open('web/data/library.json.gz','rb').read();print(len(b)//1024,'KB',len(gzip.compress(b))//1024,'KB gz')"` — anotar no commit.
 
 - [ ] **Step 7: Commit**
 
@@ -466,27 +466,27 @@ git commit -m "mkmanifest: manifest só com o que o emulador usa (sem tema, /usr
 
 ---
 
-### Task 3: `io.js` para o seletor (hub, `library.json`, imagens) e Drive
+### Task 3: `io.js` para o seletor (hub, `library.json.gz`, imagens) e Drive
 
 **Files:**
 - Modify: `web/io.js`, `web/drive.js`, `tests/mock_drive.py`
 
-- [ ] **Step 1: `drive.js` — índice com o `library.json`**
+- [ ] **Step 1: `drive.js` — índice com o `library.json.gz`**
 
-Em `libraryIndex`, exigir também `library.json` e devolver o ID e a data:
+Em `libraryIndex`, exigir também `library.json.gz` e devolver o ID e a data:
 
 ```js
-    if (!by["manifest.json"] || !by["eager.bin"] || !by["library.json"]) return null;
+    if (!by["manifest.json"] || !by["eager.bin"] || !by["library.json.gz"]) return null;
     ...
-    return { manifest: by["manifest.json"].id, eager: by["eager.bin"].id, library: by["library.json"].id, info,
-      modifiedTime: by["manifest.json"].modifiedTime, eagerTime: by["eager.bin"].modifiedTime, libraryTime: by["library.json"].modifiedTime };
+    return { manifest: by["manifest.json"].id, eager: by["eager.bin"].id, library: by["library.json.gz"].id, info,
+      modifiedTime: by["manifest.json"].modifiedTime, eagerTime: by["eager.bin"].modifiedTime, libraryTime: by["library.json.gz"].modifiedTime };
 ```
 
-- [ ] **Step 2: `mock_drive.py` publica o `library.json`**
+- [ ] **Step 2: `mock_drive.py` publica o `library.json.gz`**
 
-Na lista de arquivos do índice (linha com `for n in ("manifest.json", "eager.bin", "info.json")`), acrescentar `"library.json"`. Atualizar a docstring (`--index <pasta com manifest.json/eager.bin/info.json/library.json>`).
+Na lista de arquivos do índice (linha com `for n in ("manifest.json", "eager.bin", "info.json")`), acrescentar `"library.json.gz"`. Atualizar a docstring (`--index <pasta com manifest.json/eager.bin/info.json/library.json.gz>`).
 
-- [ ] **Step 3: `io.js` — backend `hub`, rota do `library.json`, imagens, ROM e índice**
+- [ ] **Step 3: `io.js` — backend `hub`, rota do `library.json.gz`, imagens, ROM e índice**
 
 1. Cabeçalho: trocar a descrição para "E/S do seletor e do player" e listar `hub` como 3º backend ("hub — fs/, saves/ e data/ do hub local: fetch/XHR normais").
 2. Apagar `PREFETCH`, `PREFETCH_BACK`, `SOUNDS_AFTER_MS`, `prefetchAfter`, `prefetchSounds`, `byDir`, a fila `enqueue`/`pump` e as chamadas a elas em `driveFile` e na rota do manifest. Manter `PARALLEL = 4` com o comentário "downloads de imagens do Drive ao mesmo tempo".
@@ -496,10 +496,10 @@ Na lista de arquivos do índice (linha com `for n in ("manifest.json", "eager.bi
     if (backend === "hub") return fetch(url, init);
 ```
 
-e, no ramo `demo`, incluir `rel === "data/library.json"` na lista que vai para `demoRoot`. No ramo `drive`, antes de `if (rel.startsWith("fs/"))`:
+e, no ramo `demo`, incluir `rel === "data/library.json.gz"` na lista que vai para `demoRoot`. No ramo `drive`, antes de `if (rel.startsWith("fs/"))`:
 
 ```js
-    if (rel === "data/library.json") {
+    if (rel === "data/library.json.gz") {
       const r = await indexFile(library.index.library, library.index.libraryTime);
       return r.ok ? r : resp(null, r.status);
     }
@@ -515,7 +515,7 @@ e, no ramo `demo`, incluir `rel === "data/library.json"` na lista que vai para `
   const next = () => { while (active < PARALLEL && waiting.length) { active++; waiting.shift()(); } };
   const done = () => { active--; next(); };
   const enc = p => p.split("/").map(encodeURIComponent).join("/");
-  // índice completo para o emulador (o seletor só precisa do library.json): pedido em segundo plano
+  // índice completo para o emulador (o seletor só precisa do library.json.gz): pedido em segundo plano
   let indexPromise = null;
   function loadIndex() {
     if (manifest && eager) return Promise.resolve({ manifest, eager });
@@ -533,7 +533,7 @@ e, no ramo `demo`, incluir `rel === "data/library.json"` na lista que vai para `
 ```js
     get drive() { return drive; },
     loadIndex,
-    // URL de uma imagem do library.json: caminho do cartão (hub/demo: URL direta, cache HTTP) ou {id, v} (Drive: blob)
+    // URL de uma imagem do library.json.gz: caminho do cartão (hub/demo: URL direta, cache HTTP) ou {id, v} (Drive: blob)
     async image(ref) {
       if (typeof ref === "string") return new URL("fs" + enc(ref), backend === "demo" ? demoRoot : ROOT).href;
       const c = await cache(), key = cacheKey(ref);
@@ -573,7 +573,8 @@ await p.goto("http://localhost:8770/r36s/data/cores.json");
 const r = await p.evaluate(async () => {
   const { createIO } = await import("/r36s/io.js");
   const io = createIO({ backend: "hub" });
-  const lib = await (await io.fetchFrom(location.href)("library.json")).json();
+  const r0 = await io.fetchFrom(location.href)("library.json.gz");
+  const lib = await new Response(r0.body.pipeThrough(new DecompressionStream("gzip"))).json();
   const { manifest, eager } = await io.loadIndex();
   const g = lib.games.find(g => g.box);
   return { systems: lib.systems.length, games: lib.games.length, files: Object.keys(manifest.files).length, eager: eager.length,
@@ -589,7 +590,7 @@ Expected: `{"systems": ~20+, "games": ~6000+, "files": ..., "eager": ~140000, "i
 
 ```bash
 git add web/io.js web/drive.js tests/mock_drive.py
-git commit -m "io: backend hub, library.json pelo índice do Drive, imagens sob demanda (image) e índice do emulador em segundo plano (loadIndex); sai a pré-busca do ES"
+git commit -m "io: backend hub, library.json.gz pelo índice do Drive, imagens sob demanda (image) e índice do emulador em segundo plano (loadIndex); sai a pré-busca do ES"
 ```
 
 ---
@@ -658,7 +659,7 @@ Expected: erro `Cannot find module .../web/app/library.js`.
 `web/app/library.js`:
 
 ```js
-// Biblioteca do seletor: data/library.json (gerado por data/mkmanifest.py) com índice por sistema, busca sem acento e
+// Biblioteca do seletor: data/library.json.gz (gerado por data/mkmanifest.py) com índice por sistema, busca sem acento e
 // ordens. Puro (testes em tests/test_app.mjs).
 export const norm = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
@@ -1015,7 +1016,7 @@ export function openSheet(ctx, g, { play = false } = {}) {
 - [ ] **Step 5: `web/app/main.js`**
 
 ```js
-// Seletor de jogos (substitui o EmulationStation): lê data/library.json pelo io.js (hub, demo ou Drive), desenha as
+// Seletor de jogos (substitui o EmulationStation): lê data/library.json.gz pelo io.js (hub, demo ou Drive), desenha as
 // telas e abre o jogo com launch.js. Rotas no hash: #/ (Início), #/s/<sistema>[?ordem=ano], #/busca?q=…
 import { createIO } from "../io.js";
 import { installControls } from "../controls.js";
@@ -1050,10 +1051,11 @@ const controls = installControls({ canvas: app, siteMode: !!site, site });
 
 let lib;
 try {
-  const r = await io.fetchFrom(location.href)("data/library.json");
-  if (r.status === 404) throw Object.assign(new Error("biblioteca sem library.json"), { old: true });
-  if (!r.ok) throw new Error(`library.json HTTP ${r.status}`);
-  lib = createLibrary(await r.json());
+  const r = await io.fetchFrom(location.href)("data/library.json.gz");
+  if (r.status === 404) throw Object.assign(new Error("biblioteca sem library.json.gz"), { old: true });
+  if (!r.ok) throw new Error(`library.json.gz HTTP ${r.status}`);
+  // gzip feito pelo gerador (o hub e o Drive podem mandar sem compressão): descompacta aqui
+  lib = createLibrary(await new Response(r.body.pipeThrough(new DecompressionStream("gzip"))).json());
 } catch (e) {
   status.className = "err";
   status.textContent = e.old ? "Esta biblioteca precisa ser atualizada: rode data/mkmanifest.py --drive-ids e build/upload/sobe.sh (docs/deploy.md)." : `Não deu para abrir a biblioteca: ${e.message}`;
@@ -1537,9 +1539,9 @@ def main():
     print(f"demo: {n} arquivos, eager.bin {size / 1e6:.1f} MB")
 ```
 
-Docstring: "Monta o modo demonstração do site: web/site/demo/fs/ (versionado: homebrews livres e configs) -> web/site/demo/data/{manifest.json,eager.bin,library.json}." Apagar `argparse`/`shutil`/`--resources`.
+Docstring: "Monta o modo demonstração do site: web/site/demo/fs/ (versionado: homebrews livres e configs) -> web/site/demo/data/{manifest.json,eager.bin,library.json.gz}." Apagar `argparse`/`shutil`/`--resources`.
 
-Run: `python3 data/mkdemo.py && python3 -c "import json;l=json.load(open('web/site/demo/data/library.json'));print([s['id'] for s in l['systems']],len(l['games']))"`
+Run: `python3 data/mkdemo.py && python3 -c "import json,gzip;l=json.load(gzip.open('web/site/demo/data/library.json.gz'));print([s['id'] for s in l['systems']],len(l['games']))"`
 Expected: `['nes', 'gbc'] 3` (ou na ordem do `cores.json`).
 
 - [ ] **Step 6: `build/site-dist.sh`**
@@ -1558,7 +1560,7 @@ mkdir -p "$OUT/app"; cp -L "$WEB"/app/*.js "$WEB"/app/*.css "$OUT/app/"
 
 - [ ] **Step 7: `build/upload/sobe.sh`**
 
-Apagar a etapa `== 1 tema` e a pasta `themes` do envio (acrescentar `--exclude "themes/**"` em `C=(...)`); renumerar as etapas. O índice (`indice()`) já sobe a pasta inteira `web-index` (agora com `library.json`).
+Apagar a etapa `== 1 tema` e a pasta `themes` do envio (acrescentar `--exclude "themes/**"` em `C=(...)`); renumerar as etapas. O índice (`indice()`) já sobe a pasta inteira `web-index` (agora com `library.json.gz`).
 
 - [ ] **Step 8: Conferir que nada mais importa o que saiu**
 
@@ -1686,7 +1688,7 @@ process.exit(ok ? 0 : 1);
 - [ ] **Step 2: Rodar**
 
 Run: `systemd-run --user --scope -q -p MemoryMax=12G node tests/perf_home.mjs`
-Expected: `"ok":true`. Se `kbBeforeReady` passar de 1024, o vilão é o `library.json`: medir com `ls -la web/data/library.json` e, se preciso, cortar `desc` em 300 caracteres no `read_gamelist` (o hub não comprime; o Netlify e o Drive mandam gzip — anotar os dois números). Se `longTasks` passar de 5, reduzir o custo da grade (ex.: `content-visibility` já está; checar se `createMedia` observa elementos demais e trocar `rootMargin` para `200px`).
+Expected: `"ok":true`. Se `kbBeforeReady` passar de 1024, o vilão é o `library.json.gz`: medir com `ls -la web/data/library.json.gz` e, se preciso, cortar `desc` em 300 caracteres no `read_gamelist` (o hub não comprime; o Netlify e o Drive mandam gzip — anotar os dois números). Se `longTasks` passar de 5, reduzir o custo da grade (ex.: `content-visibility` já está; checar se `createMedia` observa elementos demais e trocar `rootMargin` para `200px`).
 
 - [ ] **Step 3: Commit**
 
@@ -1736,4 +1738,4 @@ Para cada commit novo desde `fc0c7b6`, no `r36s-publish`: `git -C ../r36s format
 
 - [ ] **Step 5: Memória e vault**
 
-Atualizar `projeto-web-ports.md` (memória) com: ES removido, seletor em `web/app/`, `library.json` no índice. Oferecer ao andre a nota na knowledge-vault (não gravar sem o ok).
+Atualizar `projeto-web-ports.md` (memória) com: ES removido, seletor em `web/app/`, `library.json.gz` no índice. Oferecer ao andre a nota na knowledge-vault (não gravar sem o ok).

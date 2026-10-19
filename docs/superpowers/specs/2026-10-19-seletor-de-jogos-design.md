@@ -47,7 +47,8 @@ Mockups aprovados: `.superpowers/brainstorm/53315-1792431094/content/telas.html`
 
 `data/mkmanifest.py` passa a gerar, além do `manifest.json`:
 
-`library.json`
+`library.json`, gravado em gzip como `library.json.gz` (2,5 MB → ~0,6 MB; o hub e o Drive podem mandar
+sem compressão; o navegador descompacta com `DecompressionStream`)
 ```json
 { "version": 1,
   "systems": [ { "id": "snes", "name": "Super Nintendo", "count": 812, "playable": true, "note": "" } ],
