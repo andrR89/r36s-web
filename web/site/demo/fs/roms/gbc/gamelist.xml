@@ -2,6 +2,8 @@
 <gameList>
 	<game>
 		<path>./uCity.gbc</path>
+		<image>./images/uCity-image.png</image>
+		<thumbnail>./images/uCity-image.png</thumbnail>
 		<name>µCity</name>
 		<desc>Simulador de cidade para Game Boy Color, com save na bateria. Homebrew de Antonio Niño Díaz (2017). Código GPL 3 ou posterior, gráficos e música CC BY-SA 4.0; fonte em github.com/AntonioND/ucity.</desc>
 		<developer>Antonio Niño Díaz</developer>

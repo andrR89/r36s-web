@@ -13,6 +13,10 @@ As ROMs são as dos releases oficiais, sem modificação. Para os jogos GPL, o c
 repositórios acima (oferta de fonte da GPL 3, seção 6d: a fonte fica acessível no mesmo lugar de onde vem o binário,
 por link).
 
+As imagens em `fs/roms/<sistema>/images/` (capa e print de cada jogo, `<nome>-image.png`) são capturas de tela dos
+próprios jogos rodando no player do site (Thwaite em jogo, telas de título do Concentration Room e do µCity), feitas em
+2026-10-19; valem as mesmas licenças dos jogos acima (no µCity, os gráficos são CC BY-SA 4.0, autor Antonio Niño Díaz).
+
 Vaga para mais jogos: **sem candidato confirmado**. Tobu Tobu Girl (MIT + CC BY 4.0) e Super Tilt Bro. (WTFPL) têm
 licença livre, mas a ROM só sai pelo itch.io (sem download direto conferível daqui) — ficam de fora até alguém baixar
 e conferir.

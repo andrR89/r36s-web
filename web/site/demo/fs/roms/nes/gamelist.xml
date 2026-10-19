@@ -2,6 +2,8 @@
 <gameList>
 	<game>
 		<path>./Thwaite.nes</path>
+		<image>./images/Thwaite-image.png</image>
+		<thumbnail>./images/Thwaite-image.png</thumbnail>
 		<name>Thwaite</name>
 		<desc>Defenda as vilas dos mísseis, no estilo Missile Command. Homebrew de Damian Yerrick (2011). Licença GNU GPL 3 ou posterior; fonte em github.com/pinobatch/thwaite-nes.</desc>
 		<developer>Damian Yerrick</developer>
@@ -12,6 +14,8 @@
 	</game>
 	<game>
 		<path>./Concentration Room.nes</path>
+		<image>./images/Concentration Room-image.png</image>
+		<thumbnail>./images/Concentration Room-image.png</thumbnail>
 		<name>Concentration Room</name>
 		<desc>Jogo da memória para 1 ou 2 jogadores. Homebrew de Damian Yerrick (2010). Licença GNU GPL 3 ou posterior, com exceção que permite distribuir a ROM; fonte em github.com/pinobatch/croom-nes.</desc>
 		<developer>Damian Yerrick</developer>
