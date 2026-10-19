@@ -1,14 +1,14 @@
 // Aba isolada do player (isolated.html): núcleos com pthreads (cores.json "threads": PSP) lançados pelo site.
 // Com COOP same-origin a aba não tem window.opener; tudo que o player pegaria do pai (parent.r36s.io) vem da página do
-// ES (web/bridge.js) pelo BroadcastChannel "r36s-isolated", mensagens com o id da sessão (?session=):
-//   aba -> ES: hello (pede a configuração), token {force} (renovação), play {data} (r36s-started/r36s-exit do play.js),
+// seletor (web/app/launch.js) pelo BroadcastChannel "r36s-isolated", mensagens com o id da sessão (?session=):
+//   aba -> seletor: hello (pede a configuração), token {force} (renovação), play {data} (r36s-started/r36s-exit do play.js),
 //              alive (a cada 2 s), gone (aba fechando sem sair pelo jogo)
-//   ES -> aba: reply {rid, ...} (resposta a hello/token), close (o ES pediu para voltar à lista)
+//   seletor -> aba: reply {rid, ...} (resposta a hello/token), close (o seletor pediu para voltar à lista)
 // O token do Drive só existe em memória aqui (nem URL nem localStorage); renovação a cada minuto e no 401.
 import { createDrive } from "../drive.js";
 import { createIO } from "../io.js";
 
-const CHANNEL = "r36s-isolated";   // o mesmo em web/bridge.js
+const CHANNEL = "r36s-isolated";   // o mesmo em web/app/launch.js
 const id = new URLSearchParams(location.search).get("session") || "";
 const msg = document.getElementById("msg");
 const ch = new BroadcastChannel(CHANNEL);
@@ -32,7 +32,7 @@ ch.onmessage = e => {
   if (d.type === "reply" && waiting.has(d.rid)) { const f = waiting.get(d.rid); waiting.delete(d.rid); f(d); }
   if (d.type === "close") {
     const p = window.r36sPlay;
-    if (p && p.quit && !p.finished) p.quit("fechado pela aba do ES"); else end({ type: "r36s-exit", code: 1, saved: true });
+    if (p && p.quit && !p.finished) p.quit("fechado pela aba do seletor"); else end({ type: "r36s-exit", code: 1, saved: true });
   }
 };
 
@@ -42,15 +42,15 @@ function fail(text, sub) {
   msg.style.display = "flex";
 }
 
-// fim: avisa o ES e fecha a aba (aberta por script: window.close vale); se não fechar, deixa o aviso
+// fim: avisa o seletor e fecha a aba (aberta por script: window.close vale); se não fechar, deixa o aviso
 function end(data) {
   if (ended) return;
   ended = true;
   send({ type: "play", data });
-  setTimeout(() => { window.close(); fail("jogo encerrado", "pode fechar esta aba e voltar para o EmulationStation"); }, 300);
+  setTimeout(() => { window.close(); fail("jogo encerrado", "pode fechar esta aba e voltar para a biblioteca"); }, 300);
 }
 
-// P1/P2 como a página do ES decidiu (web/controls.js): navigator.getGamepads() devolve [P1, P2]
+// P1/P2 como a página do seletor decidiu (web/controls.js): navigator.getGamepads() devolve [P1, P2]
 function padOrder(slots) {
   if (!Array.isArray(slots) || !slots.some(s => typeof s === "number") || !navigator.getGamepads) return;
   const own = navigator.getGamepads.bind(navigator);
@@ -64,11 +64,11 @@ function padOrder(slots) {
 }
 
 async function boot() {
-  if (!id) return fail("abra o jogo pelo EmulationStation", "esta aba é aberta pelo site para jogos de PSP");
+  if (!id) return fail("abra o jogo pela biblioteca do site", "esta aba é aberta pelo site para jogos de PSP");
   if (!self.crossOriginIsolated) console.warn("[isolated] sem crossOriginIsolated: o núcleo com threads não vai iniciar (cabeçalhos COOP/COEP)");
   let cfg;
   try { cfg = await ask("hello"); }
-  catch (e) { return fail("não deu para falar com a aba do site", "volte para a aba do EmulationStation e abra o jogo de novo"); }
+  catch (e) { return fail("não deu para falar com a aba do site", "volte para a aba da biblioteca e abra o jogo de novo"); }
   setInterval(() => send({ type: "alive" }), 2000);
   addEventListener("pagehide", () => { if (!ended) send({ type: "gone" }); });
 

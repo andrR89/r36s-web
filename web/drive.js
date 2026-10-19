@@ -1,6 +1,6 @@
 // Camada do Google Drive (API v3, REST puro): biblioteca R36S (própria ou compartilhada), índice em R36S/.web/,
 // leitura por ID (com Range) e saves na pasta "R36S Web — saves" do Drive de cada usuário.
-// Interface única para o site (web/site/site.js), o ES (web/io.js) e o player (via io.js); os testes usam
+// Interface única para o site (web/site/site.js), o seletor (web/io.js) e o player (via io.js); os testes usam
 // tests/mock_drive.py no lugar de https://www.googleapis.com (mesmos caminhos e parâmetros).
 //
 // Autenticação fica fora daqui: getToken(force) -> Promise<string> (force = renovar), peekToken() -> string síncrona

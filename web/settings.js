@@ -1,4 +1,4 @@
-// Preferências de controle, por aparelho (localStorage). Usadas pela página do ES (web/controls.js, web/config-ui.js)
+// Preferências de controle, por aparelho (localStorage). Usadas pela página do seletor (web/controls.js, web/config-ui.js)
 // e pelo player (web/retroarch/play.js: zona morta e sensibilidade). Funções de mapeamento puras (testes em
 // tests/test_settings.mjs). Design: docs/superpowers/specs/2026-10-17-configurar-controles-design.md
 export const KEY = "r36s-controles-v1";
@@ -11,14 +11,14 @@ export const LABELS = { up: "Cima", down: "Baixo", left: "Esquerda", right: "Dir
   lsu: "Analógico esq. ↑", lsd: "Analógico esq. ↓", lsl: "Analógico esq. ←", lsr: "Analógico esq. →",
   rsu: "Analógico dir. ↑", rsd: "Analógico dir. ↓", rsl: "Analógico dir. ←", rsr: "Analógico dir. →" };
 
-// teclado: a tecla canônica de cada ação (event.code) — é o que o ES (es_input.cfg) e o RetroArch (retroarch.cfg web)
+// teclado: a tecla canônica de cada ação (event.code) — é o que o seletor (web/app/nav.js) e o RetroArch (retroarch.cfg web)
 // entendem. Remapear = dizer qual tecla física faz a ação; a tradução manda a canônica.
 export const CANON_KEYS = { up: "KeyW", down: "KeyS", left: "KeyA", right: "KeyD", a: "KeyL", b: "KeyK", x: "KeyI", y: "KeyJ",
   l: "KeyU", r: "KeyO", l2: "KeyY", r2: "KeyP", start: "Enter", select: "Backspace",
   lsu: "ArrowUp", lsd: "ArrowDown", lsl: "ArrowLeft", lsr: "ArrowRight", rsu: "KeyT", rsd: "KeyG", rsl: "KeyF", rsr: "KeyH" };
 
 // controle: o mapeamento "standard" da Gamepad API pela posição do R36S (baixo = B, direita = A, esquerda = Y, cima = X)
-// — é o que o laço do ES e o retroarch.cfg web (PAD_BUTTONS/PAD_AXES) esperam. Fonte: "b:N" botão, "a:N+"/"a:N-" meio-eixo.
+// — é o que o seletor (web/app/nav.js) e o retroarch.cfg web (PAD_BUTTONS/PAD_AXES) esperam. Fonte: "b:N" botão, "a:N+"/"a:N-" meio-eixo.
 export const CANON_PAD = { up: "b:12", down: "b:13", left: "b:14", right: "b:15", a: "b:1", b: "b:0", x: "b:3", y: "b:2",
   l: "b:4", r: "b:5", l2: "b:6", r2: "b:7", start: "b:9", select: "b:8",
   lsu: "a:1-", lsd: "a:1+", lsl: "a:0-", lsr: "a:0+", rsu: "a:3-", rsd: "a:3+", rsl: "a:2-", rsr: "a:2+" };

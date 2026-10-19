@@ -38,8 +38,6 @@ const CANON_ACTION = Object.fromEntries(Object.entries(S.CANON_KEYS).map(([a, co
 const PAD_MAP = { 0: "b", 1: "a", 2: "y", 3: "x", 4: "l", 5: "r", 6: "l2", 7: "r2", 8: "select", 9: "start", 12: "up", 13: "down", 14: "left", 15: "right" };
 const AXIS = 0.5;
 
-const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
-  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 const el = (tag, attrs = {}, ...kids) => {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
@@ -159,7 +157,7 @@ function quitGame() {
 export function installControls({ canvas, siteMode = false, site = null }) {
   window.r36sPads = pads;
   const touch = matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 0;
-  const state = { panel: false, touch, pads, esHeld: new Set(), touchHeld: new Set() };
+  const state = { panel: false, touch, pads, pageHeld: new Set(), touchHeld: new Set() };
   window.r36s.controls = state;
 
   // a página não lê o controle direto: ele chega ao seletor como teclas do layout (e ao jogo pelo iframe)
@@ -212,7 +210,7 @@ export function installControls({ canvas, siteMode = false, site = null }) {
     if (inGame !== prevGame) {
       sticks();
       document.body.classList.toggle("r36s-ingame", inGame);
-      prevGame = inGame; releaseES(); if (!inGame) render(); else { clearTimeout(badgeTimer); badgeTimer = setTimeout(() => badges.classList.remove("show"), 5000); } }
+      prevGame = inGame; releasePage(); if (!inGame) render(); else { clearTimeout(badgeTimer); badgeTimer = setTimeout(() => badges.classList.remove("show"), 5000); } }
     // jogo começou (o RetroArch já escuta): avisa dos controles do iframe, inclusive o virtual de toque
     const g = window.r36s.game;
     const tpOn = touch && !!(g && g.iframe) && S.load().analog.touchAnalog;
@@ -232,7 +230,7 @@ export function installControls({ canvas, siteMode = false, site = null }) {
       if (x < -AXIS) now.add("left"); if (x > AXIS) now.add("right");
       if (y < -AXIS) now.add("up"); if (y > AXIS) now.add("down");
     }
-    const held = state.esHeld;
+    const held = state.pageHeld;
     if (now.has("select") && now.has("start") && !selectUsed) { selectUsed = true; pads.swap(); }
     for (const b of held) if (!now.has(b)) {
       held.delete(b);
@@ -245,7 +243,7 @@ export function installControls({ canvas, siteMode = false, site = null }) {
       press(b, true);
     }
   }
-  function releaseES() { for (const b of state.esHeld) if (b !== "select") sendTo(window, b, "keyup"); state.esHeld.clear(); selectUsed = false; }
+  function releasePage() { for (const b of state.pageHeld) if (b !== "select") sendTo(window, b, "keyup"); state.pageHeld.clear(); selectUsed = false; }
   // com o painel aberto, A/Start do controle fecham o painel
   let panelPrev = new Set();
   let bindReady = false;
@@ -277,7 +275,6 @@ export function installControls({ canvas, siteMode = false, site = null }) {
   // ---- painel "Comandos"
   const panel = el("div", { id: "r36s-panel", role: "dialog", "aria-modal": "true", "aria-labelledby": "r36s-panel-title" });
   let tab = touch ? "touch" : "keys";
-  const dontShow = el("input", { type: "checkbox" });
   function refreshPanel() {
     const tabs = [["keys", "Teclado"], ["pad", "Controle"]].concat(touch ? [["touch", "Toque"]] : []).concat([["config", "Configurar"]]);
     const body = tab === "keys" ? keysTab() : tab === "pad" ? padTab() : tab === "touch" ? touchTab()
@@ -290,19 +287,17 @@ export function installControls({ canvas, siteMode = false, site = null }) {
             onclick: () => { tab = id; refreshPanel(); } })))),
       body,
       el("div", { class: "foot" },
-        el("label", {}, dontShow, " Não mostrar de novo"),
         el("button", { type: "button", class: "go", text: "Jogar (Enter)", onclick: closePanel }))));
   }
   function openPanel() {
     if (pads.order.length && tab === "keys") tab = "pad";
-    state.panel = true; refreshPanel(); panel.classList.add("show"); releaseES();
+    state.panel = true; refreshPanel(); panel.classList.add("show"); releasePage();
     panel.querySelector(".go").focus();
   }
   function closePanel() {
     if (!state.panel) return;
     state.binding = null; state.padBinding = null; state.bindingAction = null;
     state.panel = false; panel.classList.remove("show");
-    if (dontShow.checked) store.set("r36s-comandos-off", "1");
     const w = target(); try { (w === window ? canvas : w.document.getElementById("canvas")).focus(); } catch (e) {}
   }
   state.open = openPanel; state.close = closePanel;

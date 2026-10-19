@@ -6,7 +6,7 @@
 <link rel="icon" href="data:,">
 <!-- Player do RetroArch web (nightly do buildbot) para o R36S no navegador.
      play.html?system=snes&core=snes9x&rom=/roms/snes/<arquivo>
-     Sozinho: abre e roda. Dentro do ES (web/bridge.js): avisa o pai com postMessage({type:"r36s-exit"}) ao sair. -->
+     Sozinho: abre e roda. Dentro do seletor (web/app/launch.js): avisa o pai com postMessage({type:"r36s-exit"}) ao sair. -->
 <style>
   html,body{margin:0;height:100%;background:#000;overflow:hidden}
   /* tamanho por CSS (o RetroArch reclama se for por atributo); 4:3 como a tela do R36S */
@@ -20,7 +20,7 @@
 <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
 <div id="msg">carregando…</div>
 <div id="sync"></div>
-<!-- dentro do ES: a página do ES decide quem é P1/P2 (web/controls.js reordena navigator.getGamepads() aqui) -->
+<!-- dentro do seletor: a página do seletor decide quem é P1/P2 (web/controls.js reordena navigator.getGamepads() aqui) -->
 <script>try { if (parent !== window && parent.r36sPads) parent.r36sPads.install(window); } catch (e) {}</script>
 <script type="module" src="play.js"></script>
 </html>

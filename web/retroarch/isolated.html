@@ -7,7 +7,7 @@
 <!-- Player do RetroArch numa aba própria, para núcleos com pthreads (PSP) abertos pelo site: o site não tem COEP (o login
      do Google quebra com ele), então o iframe do jogo não teria crossOriginIsolated. Esta página é servida com
      COOP same-origin + COEP require-corp (hub: já é o padrão fora de /r36s/site/; Netlify: dist/_headers).
-     isolated.html?session=<id>&system=psp&core=ppsspp&rom=/roms/psp/<arquivo> — aberta por web/bridge.js; o resto
+     isolated.html?session=<id>&system=psp&core=ppsspp&rom=/roms/psp/<arquivo> — aberta por web/app/launch.js; o resto
      (token do Drive, biblioteca, índice) chega pelo BroadcastChannel "r36s-isolated" (isolated.js). Mesmo player:
      play.js. -->
 <style>

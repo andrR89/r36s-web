@@ -307,7 +307,7 @@ def write_info(out, files, systems):
         json.dump(info, f, ensure_ascii=False, indent=1)
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="manifest.json + eager.bin do FS do ES")
+    ap = argparse.ArgumentParser(description="manifest.json + eager.bin + library.json.gz do cartão")
     ap.add_argument("src"); ap.add_argument("out")
     ap.add_argument("--drive-ids", metavar="LSJSON", help="saída de `rclone lsjson -R --hash gdrive:R36S` (modo Drive)")
     ap.add_argument("--cores", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "web", "data", "cores.json"),

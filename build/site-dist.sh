@@ -1,7 +1,7 @@
 #!/bin/bash
 # Monta dist/ para publicar no Netlify (NÃO publica nada — ver docs/deploy.md):
-#   site (web/site/, home em /site/, "/" redireciona) + ES (index.html, emulationstation.*) + RetroArch (play.* e os
-#   núcleos que data/cores.json usa) + data/cores.json + modo demonstração (data/mkdemo.py).
+#   site (web/site/, home em /site/, "/" redireciona) + seletor (index.html, app/, io.js, drive.js, controls.*, settings.js,
+#   config-ui.js) + RetroArch (play.* e os núcleos que data/cores.json usa) + data/cores.json + modo demonstração (data/mkdemo.py).
 # Fica de fora: ROMs, card/ (web/fs), o manifesto do cartão (web/data/manifest.json, eager.bin), saves/.
 # Cabeçalhos em dist/_headers (MIME do wasm, COOP para o popup do Google, COOP+COEP só na aba isolada do PSP); o
 # Netlify comprime (gzip/brotli) na hora.
@@ -11,13 +11,14 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WEB=$ROOT/web
 OUT=${1:-$ROOT/dist}
 
-for f in emulationstation.js emulationstation.wasm data/cores.json; do
-  [ -e "$WEB/$f" ] || { echo "falta web/$f (build do ES / data/mkcores.py)" >&2; exit 1; }
+for f in data/cores.json app/main.js; do
+  [ -e "$WEB/$f" ] || { echo "falta web/$f (data/mkcores.py)" >&2; exit 1; }
 done
 python3 "$ROOT/data/mkdemo.py" >/dev/null
 
 rm -rf "$OUT"; mkdir -p "$OUT/data" "$OUT/retroarch"
-cp -L "$WEB"/index.html "$WEB"/*.js "$WEB"/*.css "$WEB"/emulationstation.wasm "$OUT/"
+cp -L "$WEB"/index.html "$WEB"/*.js "$WEB"/*.css "$OUT/"
+mkdir -p "$OUT/app"; cp -L "$WEB"/app/*.js "$WEB"/app/*.css "$OUT/app/"
 cp -L "$WEB/data/cores.json" "$OUT/data/"
 cp -L "$WEB"/retroarch/play.html "$WEB"/retroarch/play.js "$WEB"/retroarch/isolated.html "$WEB"/retroarch/isolated.js "$WEB"/retroarch/NIGHTLY "$OUT/retroarch/"
 # núcleos: só os que o mapa sistema -> núcleo usa
@@ -40,13 +41,14 @@ PY
   if [ -d "$WEB/retroarch/$dir" ]; then mkdir -p "$OUT/retroarch/$dir"; cp -rL "$WEB/retroarch/$dir/." "$OUT/retroarch/$dir/"
   else echo "aviso: falta web/retroarch/$dir (build/build-core.sh)" >&2; fi
 done
-# site + demo (sem o es-fundo do design, que só ilustrava o canvas)
+# site + demo (sem o es-fundo do design, que só ilustrava o canvas, nem o es_systems.cfg do demo, que só serve ao
+# gerador: o seletor lê o library.json.gz)
 mkdir -p "$OUT/site"
-(cd "$WEB/site" && tar --exclude=img/es-fundo.png -chf - .) | (cd "$OUT/site" && tar -xf -)
+(cd "$WEB/site" && tar --exclude=img/es-fundo.png --exclude=demo/fs/etc -chf - .) | (cd "$OUT/site" && tar -xf -)
 
 cat > "$OUT/_headers" <<'H'
-# Netlify. Site e ES sem COEP, que bloquearia o script do login do Google (accounts.google.com não manda CORP);
-# COOP same-origin-allow-popups no site: o popup do Google fala com a página. O ES (/index.html) só abre num iframe do
+# Netlify. Site e seletor sem COEP, que bloquearia o script do login do Google (accounts.google.com não manda CORP);
+# COOP same-origin-allow-popups no site: o popup do Google fala com a página. O seletor (/index.html) só abre num iframe do
 # site (COOP não vale em iframe). Só a aba isolada do player (/retroarch/isolated.html: PSP, pthreads) é
 # crossOriginIsolated (COOP same-origin + COEP require-corp): tudo nela é da mesma origem ou fetch/XHR CORS do Drive,
 # que o require-corp aceita. O COOP fica fora do /* porque o Netlify junta valores de regras que casam no mesmo caminho.
@@ -73,9 +75,12 @@ cat > "$OUT/_headers" <<'H'
   Cache-Control: public, max-age=31536000, immutable
 H
 cat > "$OUT/_redirects" <<'R'
-# a home é o site; o ES fica em /index.html (aberto pelo site num iframe)
+# a home é o site; o seletor fica em /index.html (aberto pelo site num iframe)
 /   /site/   302!
 R
+
+# nada do ES pode sobrar
+! find "$OUT" -iname "*emulationstation*" | grep -q . || { echo "sobrou arquivo do ES no dist" >&2; exit 1; }
 
 echo "dist: $OUT"
 du -sh "$OUT" | cut -f1 | sed 's/^/  total: /'

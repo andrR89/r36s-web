@@ -1,4 +1,4 @@
-/* Controles por cima do ES e do jogo (web/controls.js): painel "Comandos", selos P1/P2, joystick de toque.
+/* Controles por cima do seletor e do jogo (web/controls.js): painel "Comandos", selos P1/P2, joystick de toque.
    Visual do design aprovado (canvas Claude Design: telas Comandos e Celular). */
 @font-face { font-family: "Press Start 2P"; src: url(site/fonts/press-start-2p.woff2) format("woff2"); font-display: swap; }
 @font-face { font-family: "Space Mono"; src: url(site/fonts/space-mono-400.woff2) format("woff2"); font-weight: 400; font-display: swap; }
@@ -55,8 +55,7 @@
 #r36s-panel .two { padding: 16px; background: var(--ink2); border: 3px solid var(--pink); display: flex; flex-direction: column; gap: 8px; }
 #r36s-panel .two span { font-weight: 700; color: var(--pink); font-size: 14px; }
 #r36s-panel .two p { margin: 0; font-size: 13px; line-height: 1.6; color: #e8e3ff; }
-#r36s-panel .foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
-#r36s-panel .foot label { display: flex; gap: 10px; align-items: center; font-size: 13px; color: #e8e3ff; }
+#r36s-panel .foot { display: flex; justify-content: flex-end; align-items: center; gap: 12px; flex-wrap: wrap; }
 #r36s-panel .go { padding: 12px 24px; background: var(--yellow); color: var(--ink); border: 0; font: 700 15px "Space Mono", monospace; cursor: pointer; box-shadow: 4px 4px 0 var(--cyan); }
 #r36s-panel .go:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 @media (max-width: 640px) {
@@ -110,7 +109,7 @@ body.r36s-touch #r36s-help { display: none; }   /* no toque, "?" fica no menu â‰
 body.r36s-touch #r36s-badges, body.r36s-touch #r36s-toast { right: 50%; transform: translateX(50%); top: 60px; }
 body.r36s-touch #r36s-toast:not(.show) + #r36s-badges { top: 60px; }
 
-/* retrato: tela 4:3 em cima (ES e jogo), controles na metade de baixo */
+/* retrato: tela 4:3 em cima (o jogo), controles na metade de baixo */
 body.r36s-portrait #canvas { height: 75vw !important; width: 100% !important; margin: 0; }
 body.r36s-portrait #game { height: 75vw; bottom: auto; }
 body.r36s-portrait #r36s-touch { top: calc(75vw + 8px); }

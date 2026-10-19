@@ -1,6 +1,6 @@
-// SPA do site: home -> login Google -> biblioteca (própria / compartilhada / as duas / nenhuma) -> ES em tela cheia.
-// O ES roda num iframe (../index.html?backend=drive|demo) e pega daqui, por window.r36sSite (mesma origem), a camada
-// do Drive (../drive.js, com o token em memória) e a biblioteca escolhida. Sair do ES = remover o iframe.
+// SPA do site: home -> login Google -> biblioteca (própria / compartilhada / as duas / nenhuma) -> seletor de jogos em tela cheia.
+// O seletor roda num iframe (../index.html?backend=drive|demo) e pega daqui, por window.r36sSite (mesma origem), a camada
+// do Drive (../drive.js, com o token em memória) e a biblioteca escolhida. Sair do seletor = remover o iframe.
 import cfg from "./config.js";
 import { createAuth } from "./auth.js";
 import { createDrive } from "../drive.js";
@@ -44,11 +44,11 @@ const app = { state: "home", libraries: null, library: null, user: null, error: 
 window.r36sApp = app;   // inspeção nos testes
 app.askGesture = askGesture;
 
-// ponte para o ES (iframe): mesma origem
+// ponte para o seletor (iframe): mesma origem
 window.r36sSite = {
   get drive() { return auth.signedIn ? drive : null; },
   get library() { return app.library; },
-  // token para a aba isolada do PSP (web/bridge.js responde a ela pelo BroadcastChannel; nunca vai para URL/storage)
+  // token para a aba isolada do PSP (web/app/launch.js responde a ela pelo BroadcastChannel; nunca vai para URL/storage)
   token(force) { return auth.signedIn ? auth.getToken(force) : Promise.resolve(""); },
   exit() { location.hash = app.library ? "#/biblioteca" : "#/"; },
 };
@@ -62,7 +62,7 @@ function show(name) {
 }
 function route() {
   const r = location.hash.startsWith("#/") ? location.hash.slice(2) : "";
-  if (r !== "jogar" && r !== "demo") unmountES();
+  if (r !== "jogar" && r !== "demo") unmountApp();
   if (r === "entrar") return show("entrar");
   if (r === "biblioteca") {
     if (!auth.signedIn) return void (location.hash = "#/entrar");
@@ -71,9 +71,9 @@ function route() {
   if (r === "jogar") {
     if (!auth.signedIn) return void (location.hash = "#/entrar");
     if (!app.library) return void (location.hash = "#/biblioteca");
-    show("jogar"); return mountES("drive");
+    show("jogar"); return mountApp("drive");
   }
-  if (r === "demo") { app.library = null; show("jogar"); return mountES("demo"); }
+  if (r === "demo") { app.library = null; show("jogar"); return mountApp("demo"); }
   show("home");
   if (location.hash && !location.hash.startsWith("#/")) document.getElementById(location.hash.slice(1))?.scrollIntoView();
 }
@@ -174,7 +174,7 @@ function renderNone(box) {
   const msg = h("p", { class: "hint", role: "status" });
   put(box, h("h1", { text: "Nenhuma biblioteca ainda" }),
     h("div", { class: "none" },
-      h("div", {}, h("b", { text: "Testar agora" }), h("p", { text: "Abre o ES com jogos homebrew livres que já vêm no site." }),
+      h("div", {}, h("b", { text: "Testar agora" }), h("p", { text: "Abre a biblioteca com jogos homebrew livres que já vêm no site." }),
         h("button", { type: "button", class: "solid", text: "Modo demonstração", onclick: () => { location.hash = "#/demo"; } })),
       h("div", {}, h("b", { text: "Usar meus jogos" }), h("p", { text: "Crie a pasta R36S no seu Drive com uma subpasta por sistema: snes, nes, gba…" }),
         h("button", { type: "button", class: "ghost", text: "Criar pasta no meu Drive", onclick: async e => {
@@ -190,19 +190,19 @@ function renderNone(box) {
     msg);
 }
 
-// ---------------------------------------------------------------- ES em tela cheia
-let esFrame = null;
-function mountES(backend) {
-  if (esFrame && esFrame.dataset.backend === backend) return;
-  unmountES();
-  esFrame = h("iframe", { src: `../index.html?backend=${backend}`, title: "EmulationStation", allow: "autoplay; fullscreen; gamepad" });
-  esFrame.dataset.backend = backend;
-  esFrame.addEventListener("load", () => esFrame && esFrame.contentWindow.focus());
-  $("#jogar").replaceChildren(esFrame);
+// ---------------------------------------------------------------- seletor em tela cheia
+let appFrame = null;
+function mountApp(backend) {
+  if (appFrame && appFrame.dataset.backend === backend) return;
+  unmountApp();
+  appFrame = h("iframe", { src: `../index.html?backend=${backend}`, title: "R36S", allow: "autoplay; fullscreen; gamepad" });
+  appFrame.dataset.backend = backend;
+  appFrame.addEventListener("load", () => appFrame && appFrame.contentWindow.focus());
+  $("#jogar").replaceChildren(appFrame);
 }
-function unmountES() {
-  if (!esFrame) return;
-  esFrame.remove(); esFrame = null;
+function unmountApp() {
+  if (!appFrame) return;
+  appFrame.remove(); appFrame = null;
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
 }
 

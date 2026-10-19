@@ -45,14 +45,14 @@ const syncEl = document.getElementById("sync");
 const canvas = document.getElementById("canvas");
 const log = (...a) => console.log("[play]", ...a);
 // E/S: no hub, fetch/XHR do navegador (../fs, ../saves, ../data). Dentro do site (backend drive/demo) o player usa o
-// backend da página do ES (web/io.js), que traduz essas mesmas URLs; nada mais muda aqui entre os backends.
+// backend da página do seletor (web/io.js), que traduz essas mesmas URLs; nada mais muda aqui entre os backends.
 const io = (() => { try { return host ? host.io : embedded && parent.r36s && parent.r36s.io; } catch (e) { return null; } })();
 const fetch = io ? io.fetchFrom(location.href) : globalThis.fetch.bind(globalThis);
 const XMLHttpRequest = io ? io.xhrFrom(location.href) : globalThis.XMLHttpRequest;
 const state = { module: null, finished: false, started: false };
 window.r36sPlay = state;   // inspeção nos testes
 
-// teclado (layout do andre, igual no ES e em todos os sistemas): WASD = direcional, L=A K=B J=Y I=X U=L O=R, Enter=Start,
+// teclado (layout do andre, igual no seletor e em todos os sistemas): WASD = direcional, L=A K=B J=Y I=X U=L O=R, Enter=Start,
 // Backspace=Select, Backspace+Enter = sair (F12 sintético, abaixo), Esc = menu do RetroArch, F5/F7 = salvar/carregar estado.
 // Extras para núcleos que usam L2/R2 (PS1): Y = L2 (ao lado do U=L), P = R2 (ao lado do O=R).
 // Analógicos (N64 e afins), em teclas livres do layout: setas = analógico esquerdo (o direcional do N64);
@@ -148,9 +148,9 @@ input_player2_joypad_index = "1"
 `;
 // Controles físicos (Gamepad API, mapeamento "standard"), pela POSIÇÃO do botão como no R36S: baixo = B, direita = A,
 // esquerda = Y, cima = X, LB/RB = L/R, LT/RT = L2/R2, View/Back = Select, Menu/Start = Start (Select+Start sai: combo 4).
-// Quem é P1/P2 decide a página do ES (web/controls.js): ela reordena navigator.getGamepads() dentro deste iframe
+// Quem é P1/P2 decide a página do seletor (web/controls.js): ela reordena navigator.getGamepads() dentro deste iframe
 // (play.html), então os índices daqui são fixos (0 = P1, 1 = P2). P2 também tem teclas (teclado numérico), usadas só
-// quando o teclado vira o Jogador 2 (troca com Start+Select no ES, 1 controle + teclado).
+// quando o teclado vira o Jogador 2 (troca com Start+Select no seletor, 1 controle + teclado).
 const PAD_BUTTONS = { b: 0, a: 1, y: 2, x: 3, l: 4, r: 5, l2: 6, r2: 7, select: 8, start: 9, l3: 10, r3: 11, up: 12, down: 13, left: 14, right: 15 };
 const PAD_AXES = { l_x_plus: "+0", l_x_minus: "-0", l_y_plus: "+1", l_y_minus: "-1", r_x_plus: "+2", r_x_minus: "-2", r_y_plus: "+3", r_y_minus: "-3" };
 const P2_KEYS = { up: "keypad8", down: "keypad2", left: "keypad4", right: "keypad6", a: "keypad3", b: "keypad1", x: "keypad9", y: "keypad7",
@@ -318,9 +318,9 @@ async function finish(code, reason) {
   if (embedded) postParent({ type: "r36s-exit", code, saved });
   else show("jogo encerrado", saved ? "save sincronizado" : "save guardado no navegador (servidor indisponível)", !saved);
 }
-state.quit = why => finish(0, why);   // aba isolada: a página do ES pediu para fechar
+state.quit = why => finish(0, why);   // aba isolada: a página do seletor pediu para fechar
 
-// erro antes de iniciar: mostra e sai com qualquer tecla (ou em 8 s, dentro do ES)
+// erro antes de iniciar: mostra e sai com qualquer tecla (ou em 8 s, dentro do seletor)
 function fatal(text, detail) {
   console.error("[play]", text, detail || "");
   show(text, (detail ? detail + " — " : "") + "aperte qualquer tecla para voltar", true);
@@ -335,10 +335,10 @@ const dirOf = p => p.slice(0, p.lastIndexOf("/")) || "/";
 const lazyStats = { files: 0, requests: 0, bytes: 0 };
 state.lazy = lazyStats;
 
-// manifesto do FS do ES (o pai já tem; sozinho, baixa): lista das pastas e da BIOS sem perguntar ao servidor
+// manifesto do cartão (o seletor já tem; sozinho, baixa): lista das pastas e da BIOS sem perguntar ao servidor
 async function loadManifest() {
   if (host && host.manifest) return host.manifest;
-  try { if (embedded && parent.r36s && parent.r36s.fs && parent.r36s.fs.manifest) return parent.r36s.fs.manifest; } catch (e) {}
+  try { if (embedded && parent.r36s && parent.r36s.io) return (await parent.r36s.io.loadIndex()).manifest; } catch (e) {}
   const r = await fetch("../data/manifest.json");
   if (!r.ok) throw new Error(`manifest HTTP ${r.status}`);
   return r.json();
@@ -629,13 +629,13 @@ addEventListener("keydown", e => {
     // núcleo que quebra ao descarregar (ppsspp: "memory access out of bounds" no unload com pthreads): sai direto, sem
     // passar pelo quit do RetroArch (o save dele já está nos arquivos do memory stick; o finish sobe o blob)
     if (state.directExit) { finish(0, "saída direta"); return; }
-    // ainda baixando: o RetroArch não começou; avisa a página do ES para fechar
+    // ainda baixando: o RetroArch não começou; avisa a página do seletor para fechar
     if (!state.started && embedded) { postParent({ type: "r36s-exit", code: 1, saved: true }); return; }
     sendKey("keydown", "F12");
     setTimeout(() => sendKey("keyup", "F12"), 120);
   }
 }, true);
-// erro fatal do núcleo depois de iniciado (trap do wasm no laço principal): não deixa o ES esperando para sempre
+// erro fatal do núcleo depois de iniciado (trap do wasm no laço principal): não deixa o seletor esperando para sempre
 const crashed = ev => {
   if (!state.started || state.finished) return;
   const m = String(ev.error || ev.reason || ev.message || ev);

@@ -6,10 +6,7 @@ card-sample/
 web/data
 web/fs
 __pycache__/
-build/es-out/
 build/rapidjson/
-web/emulationstation.js
-web/emulationstation.wasm
 tests/out/
 build/retroarch-dl/
 web/retroarch/*_libretro.js
@@ -18,7 +15,6 @@ build/hub-backup/
 build/cores/
 web/retroarch/assets/
 web/retroarch/*_libretro.worker.js
-web/site/demo/fs/usr/
 web/site/demo/data/
 dist/
 .claude/

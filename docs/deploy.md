@@ -8,9 +8,10 @@
 ```
 Netlify (estático, dist/)                Google Drive do andre              Google Drive de cada jogador
   /site/        home, login, biblioteca     R36S/            (= cartão EASYROMS)  R36S Web — saves/<sistema>/<arquivo>
-  /index.html   ES (WASM), em iframe        R36S/.web/manifest.json             (criada pelo site, escopo drive.file;
+  /index.html   seletor de jogos, iframe    R36S/.web/manifest.json             (criada pelo site, escopo drive.file;
   /retroarch/   RetroArch + núcleos         R36S/.web/eager.bin                  o Drive guarda as revisões)
-  /site/demo/   homebrews livres            R36S/.web/info.json
+  /site/demo/   homebrews livres            R36S/.web/library.json.gz
+                                            R36S/.web/info.json
 ```
 
 - Login: Google Identity Services (popup), escopos `drive.readonly` (ler a pasta R36S, própria ou compartilhada) e
@@ -47,8 +48,8 @@ rclone copy /run/media/andre/EASYROMS gdrive:R36S --progress --transfers 8 --che
   --exclude ".Trash-1000/**" --exclude "*.log"
 ```
 
-Dica: começar por uma pasta (`rclone copy /run/media/andre/EASYROMS/snes gdrive:R36S/snes`) e o tema
-(`themes/es-theme-farfenkugell_EPICMAX`) para testar antes de subir tudo.
+Dica: começar por uma pasta (`rclone copy /run/media/andre/EASYROMS/snes gdrive:R36S/snes`) para testar antes de subir tudo. A pasta `themes/` (temas do
+EmulationStation) não é usada pelo site: `build/upload/sobe.sh` deixa ela de fora.
 
 ## 3. Gerar e subir o índice (`R36S/.web`)
 
@@ -56,7 +57,7 @@ Dica: começar por uma pasta (`rclone copy /run/media/andre/EASYROMS/snes gdrive
 cd ~/Workspace/web-ports/r36s
 rclone lsjson -R --hash --files-only gdrive:R36S > /tmp/r36s-drive.json      # caminhos + IDs + md5
 python3 data/mkmanifest.py card /tmp/r36s-web --drive-ids /tmp/r36s-drive.json
-rclone copy /tmp/r36s-web gdrive:R36S/.web --progress                         # manifest.json, eager.bin, info.json
+rclone copy /tmp/r36s-web gdrive:R36S/.web --progress                         # manifest.json, eager.bin, library.json.gz, info.json
 ```
 
 `card/` é a árvore local de sempre (`data/mkcard.py`: ROOTFS + `card/roms` -> cartão). O script avisa quantos arquivos
@@ -88,7 +89,7 @@ npx netlify-cli deploy --dir dist --prod     # produção
 ```
 
 - `dist/_headers`: `application/wasm`, cache dos núcleos, `Cross-Origin-Opener-Policy: same-origin-allow-popups`
-  em `/site/*` (o popup do Google precisa falar com a página). **Sem COEP** no site e no ES: `require-corp`
+  em `/site/*` (o popup do Google precisa falar com a página). **Sem COEP** no site e no seletor: `require-corp`
   bloquearia o script `accounts.google.com/gsi/client`. O PSP (ppsspp, pthreads -> `SharedArrayBuffer`) roda numa
   aba própria, `/retroarch/isolated.html`, a única com `COOP: same-origin` + `COEP: require-corp` (ver
   docs/port-notes.md, "PSP no site"). O COOP não fica no `/*` porque o Netlify junta os valores de regras que casam
@@ -103,7 +104,7 @@ npx netlify-cli deploy --dir dist --prod     # produção
 - Login Google de verdade (aviso de app não verificado, os dois escopos, renovação do token depois de 1 h).
 - Pasta compartilhada de verdade com outra conta (usuário de teste).
 - Controles físicos (Xbox/PlayStation/8BitDo, USB e Bluetooth): mapeamento por posição, 2 controles, Start+Select no
-  ES para trocar P1/P2. O teste automático usa `navigator.getGamepads` falso.
+  seletor para trocar P1/P2. O teste automático usa `navigator.getGamepads` falso.
 - Celular (A54): joystick de toque em pé e deitado, multitoque, tela cheia.
 
 ## Hub local (desenvolvimento)

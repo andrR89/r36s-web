@@ -19,10 +19,6 @@ e conferir.
 
 ## Demais arquivos do modo demonstração
 
-- Tema `fs/roms/themes/r36s-demo/`: autoria própria deste projeto (XML + PNGs de cor sólida).
-- Fonte Press Start 2P (tema e site): SIL Open Font License 1.1 — `fs/roms/themes/r36s-demo/_art/OFL-PressStart2P.txt`
-  e `../fonts/OFL-PressStart2P.txt`. Space Mono (site): SIL OFL 1.1 — `../fonts/OFL-SpaceMono.txt`.
-- `fs/usr/bin/emulationstation/resources/` (gerado por `data/mkdemo.py`, não versionado): recursos do
-  EmulationStation (MIT) e as fontes que ele traz (Open Sans/Apache 2.0, DejaVu, Droid Sans Fallback/Apache 2.0,
-  Nanum Myeongjo/OFL, Font Awesome/OFL).
-- O tema EPICMAX do cartão (CC BY-NC-SA 4.0) **não** vai no demo: fica só na biblioteca de cada um, no Drive.
+- Fontes do site e do seletor: Press Start 2P e Space Mono, SIL Open Font License 1.1 — `../fonts/OFL-PressStart2P.txt`
+  e `../fonts/OFL-SpaceMono.txt`.
+- Nada do cartão vai no demo (nem o tema EPICMAX, CC BY-NC-SA 4.0): fica só na biblioteca de cada um, no Drive.
