@@ -1,6 +1,6 @@
 # tests/test_library.py — library.json do seletor (data/mkmanifest.py build_library)
 # python3 -m unittest tests.test_library
-import json, os, subprocess, sys, tempfile, unittest
+import gzip, json, os, subprocess, sys, tempfile, unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "data"))
 import mkmanifest
 
@@ -46,7 +46,9 @@ class Library(unittest.TestCase):
             lsj = os.path.join(out, "ls.json"); open(lsj, "wb").write(ls)
             ids = mkmanifest.read_lsjson(lsj)
         mkmanifest.build(src, out, ids, cores)
-        return json.load(open(os.path.join(out, "library.json"), encoding="utf-8")), ids
+        self.assertFalse(os.path.exists(os.path.join(out, "library.json")))   # só o .gz
+        with gzip.open(os.path.join(out, "library.json.gz"), "rt", encoding="utf-8") as f:
+            return json.load(f), ids
 
     def test_systems_in_cores_order_without_empty(self):
         lib, _ = self.make()

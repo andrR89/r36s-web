@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gera manifest.json + eager.bin + library.json (seletor de jogos: sistemas, jogos, metadados dos gamelist.xml) a partir de uma árvore de cartão (card/ ou card-sample/).
+"""Gera manifest.json + eager.bin + library.json.gz (seletor de jogos: sistemas, jogos, metadados dos gamelist.xml) a partir de uma árvore de cartão (card/ ou card-sample/).
 
 Modo cartão (há um es_systems.cfg em /etc/emulationstation ou ~/.emulationstation): só entra o que o ES usa —
 ROMs (extensões do sistema, como arquivos vazios), gamelist.xml (eager), mídia citada nos gamelists ou em images/
@@ -13,7 +13,7 @@ md5 ou data). Fora de /roms tudo vira eager (não está no Drive: vai no eager.b
 pastas de sistema que o ES não lista mas o player pode pedir (faixas .bin de .cue, saves .srm/.dsv do cartão...).
 Grava também info.json (sistemas, jogos) para a tela da biblioteca. Os três vão para R36S/.web/ no Drive.
 """
-import argparse, datetime, json, os, re, sys, urllib.parse
+import argparse, datetime, gzip, json, os, re, sys, urllib.parse
 import xml.etree.ElementTree as ET
 
 ROM_EXT = {".7z", ".zip", ".sfc", ".smc", ".nes", ".gb", ".gbc", ".gba", ".md", ".gen", ".bin",
@@ -221,7 +221,7 @@ def cited_by_sheet(real, vdir):
     return {os.path.normpath(vdir + "/" + n) for n in names}
 
 def write_library(out, src, tree, drive_ids, cores_path):
-    """library.json: sistemas com jogos (ordem do cores.json, senão do es_systems.cfg) e os jogos com os metadados."""
+    """library.json.gz: sistemas com jogos (ordem do cores.json, senão do es_systems.cfg) e os jogos com os metadados."""
     systems = read_systems_full(src)
     cores = json.load(open(cores_path, encoding="utf-8"))["systems"] if cores_path and os.path.isfile(cores_path) else {}
     files = {vp: (real, size) for _, entries in tree for vp, real, size in entries}
@@ -275,8 +275,11 @@ def write_library(out, src, tree, drive_ids, cores_path):
     for s in out_systems:
         del s["order"]
     lib = {"version": 1, "systems": out_systems, "games": out_games}
-    with open(os.path.join(out, "library.json"), "w", encoding="utf-8") as f:
-        json.dump(lib, f, ensure_ascii=False, separators=(",", ":"))
+    # gzip aqui: o hub e o Drive podem mandar sem compressão (o navegador abre com DecompressionStream)
+    raw = json.dumps(lib, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    with open(os.path.join(out, "library.json.gz"), "wb") as f:
+        with gzip.GzipFile(filename="", mode="wb", fileobj=f, mtime=0, compresslevel=9) as z:
+            z.write(raw)
     return len(out_games)
 
 def build(src, out, drive_ids=None, cores=None):
