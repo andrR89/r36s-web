@@ -165,3 +165,8 @@ body.r36s-portrait.r36s-analog #r36s-touch .dpad, body.r36s-portrait.r36s-analog
 /* tamanho G: direcional e ABXY descem para não encostar em L2/R2 */
 #r36s-touch[data-size="g"] .dpad, #r36s-touch[data-size="g"] .abxy { top: 50%; }
 body.r36s-analog #r36s-touch[data-size="g"] .dpad, body.r36s-analog #r36s-touch[data-size="g"] .abxy { top: 47%; }
+
+/* seletor: o joystick de toque e o "?" só aparecem no jogo (fora dele, o toque é na própria tela) */
+body:not(.r36s-ingame) #r36s-touch, body:not(.r36s-ingame) #r36s-help, body:not(.r36s-ingame) #r36s-sheet { display: none; }
+/* no retrato o jogo ocupa só o topo: fundo preto sob o joystick, em vez do seletor aparecendo atrás */
+body.r36s-ingame::before { content: ""; position: fixed; inset: 0; z-index: 29; background: #000; }

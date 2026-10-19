@@ -1,11 +1,11 @@
-// Controles do R36S no navegador, por cima do ES (web/index.html) e do jogo (iframe retroarch/play.html):
-//  - painel "Comandos" (design do site): na primeira entrada pelo site e no botão "?"; aba conforme o aparelho;
+// Controles do R36S no navegador, por cima do seletor (web/index.html) e do jogo (iframe retroarch/play.html):
+//  - painel "Comandos" (design do site): no menu ≡ do seletor e no botão "?"; aba conforme o aparelho;
 //  - joystick de toque (só em tela de toque): gera as MESMAS teclas do layout (WASD, L/K/J/I, U/O, Y/P, Enter,
-//    Backspace) para o ES ou para o jogo; multitoque; retrato e paisagem;
-//  - controle físico (Gamepad API): no ES vira teclas do layout (o SDL do ES não vê o controle); no jogo o RetroArch
+//    Backspace) para o seletor ou para o jogo; multitoque; retrato e paisagem;
+//  - controle físico (Gamepad API): no seletor vira as teclas do layout (web/app/nav.js); no jogo o RetroArch
 //    lê o controle direto (rwebpad), com P1/P2 decididos aqui e aplicados pelo navigator.getGamepads() do iframe;
 //  - 2 jogadores: 2 controles -> P1/P2; 1 controle + teclado/toque -> controle P1 (padrão; a aba Configurar inverte);
-//    Start+Select no controle (no ES) troca; selos P1/P2 no topo;
+//    Start+Select no controle (no seletor) troca; selos P1/P2 no topo;
 //  - aba "Configurar" (web/config-ui.js, preferências em web/settings.js): remapear teclado e controle, jogadores,
 //    joystick de toque (tamanho, transparência, analógicos), zona morta/sensibilidade; no jogo o toque vira um
 //    controle virtual ("R36S Toque") com analógico proporcional.
@@ -131,7 +131,7 @@ const pads = {
   },
 };
 
-// evento de tecla sintético no ES (canvas) ou no jogo (canvas do iframe)
+// evento de tecla sintético no seletor (#app) ou no jogo (canvas do iframe)
 function sendTo(win, btn, type, then) {
   const [key, code, keyCode] = KEYS[btn];
   const c = win.document.getElementById("canvas") || win.document;
@@ -162,13 +162,14 @@ export function installControls({ canvas, siteMode = false, site = null }) {
   const state = { panel: false, touch, pads, esHeld: new Set(), touchHeld: new Set() };
   window.r36s.controls = state;
 
-  // o SDL do ES não vê os controles (seriam um joystick sem configuração): eles chegam ao ES como teclas
+  // a página não lê o controle direto: ele chega ao seletor como teclas do layout (e ao jogo pelo iframe)
   navigator.getGamepads = () => [];
   addEventListener("gamepadconnected", e => { e.stopImmediatePropagation(); pads.connect(e.gamepad); }, true);
   addEventListener("gamepaddisconnected", e => { e.stopImmediatePropagation(); pads.disconnect(e.gamepad.index); }, true);
-  // teclado no ES: remapeamento (tecla física -> tecla do layout). Antes do keepFocus (que escuta no document).
+  // teclado no seletor: remapeamento (tecla física -> tecla do layout). Antes do nav.js (registrado depois, no window).
   for (const type of ["keydown", "keyup"]) addEventListener(type, e => {
     if (!e.isTrusted || state.panel || window.r36s.game) return;
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;   // texto da busca
     const t = S.keyTable();
     if (!t.changed) return;
     const a = t.byCode.get(e.code);
@@ -202,7 +203,7 @@ export function installControls({ canvas, siteMode = false, site = null }) {
   };
   pads.listeners.add(render);
 
-  // ---- ES: controle -> teclas do layout (Select só no soltar, para Start+Select poder trocar P1/P2 sem efeito no ES)
+  // ---- seletor: controle -> teclas do layout (Select só no soltar, para Start+Select poder trocar P1/P2 sem efeito no seletor)
   let selectUsed = false, prevGame = false;
   function poll() {
     requestAnimationFrame(poll);
@@ -210,6 +211,7 @@ export function installControls({ canvas, siteMode = false, site = null }) {
     const inGame = !!window.r36s.game;
     if (inGame !== prevGame) {
       sticks();
+      document.body.classList.toggle("r36s-ingame", inGame);
       prevGame = inGame; releaseES(); if (!inGame) render(); else { clearTimeout(badgeTimer); badgeTimer = setTimeout(() => badges.classList.remove("show"), 5000); } }
     // jogo começou (o RetroArch já escuta): avisa dos controles do iframe, inclusive o virtual de toque
     const g = window.r36s.game;
@@ -304,10 +306,10 @@ export function installControls({ canvas, siteMode = false, site = null }) {
     const w = target(); try { (w === window ? canvas : w.document.getElementById("canvas")).focus(); } catch (e) {}
   }
   state.open = openPanel; state.close = closePanel;
-  // com o painel aberto as teclas são dele (não chegam ao ES nem ao jogo); Enter/Esc fecham
+  // com o painel aberto as teclas são dele (não chegam ao seletor nem ao jogo); Enter/Esc fecham
   for (const type of ["keydown", "keyup"]) addEventListener(type, e => {
     if (!state.panel) return;
-    e.stopImmediatePropagation();   // nem o ES (keepFocus repassa teclas ao canvas) nem o jogo veem
+    e.stopImmediatePropagation();   // nem o seletor nem o jogo veem
     if (state.binding) { e.preventDefault(); if (type === "keydown" && !e.repeat) state.binding(e); return; }   // remapeando
     if (type === "keydown" && (e.key === "Enter" || e.key === "Escape")) { e.preventDefault(); closePanel(); }
     else if (e.key !== "Tab" && !(e.key === " " && /^(INPUT|BUTTON)$/.test(e.target.tagName))) e.preventDefault();
@@ -317,7 +319,6 @@ export function installControls({ canvas, siteMode = false, site = null }) {
 
   document.body.append(toast, badges, panel, help);
   if (touch) installTouch(state, { openPanel, siteMode, site });
-  if (siteMode && store.get("r36s-comandos-off") !== "1") openPanel();
   render();
   return state;
 }
@@ -503,7 +504,7 @@ function installTouch(state, { openPanel, siteMode, site }) {
       for (const b of now) if (!held.has(b)) for (const e of shown.get(b) || []) e.classList.add("on");
       state.touchHeld = now;
     }
-    // teclas: no ES sempre; no jogo só sem o controle virtual
+    // teclas: no seletor sempre; no jogo só sem o controle virtual
     const want = pm ? new Set() : now;
     for (const b of [...keysDown]) if (!want.has(b)) { keysDown.delete(b); press(b, false); }
     for (const b of want) if (!keysDown.has(b)) { keysDown.add(b); press(b, true); }
