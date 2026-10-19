@@ -53,6 +53,7 @@ Mockups aprovados: `.superpowers/brainstorm/53315-1792431094/content/telas.html`
   "systems": [ { "id": "snes", "name": "Super Nintendo", "count": 812, "playable": true, "note": "" } ],
   "games": [ { "s": "snes", "rom": "/roms/snes/Donkey Kong Country 3 (USA).sfc", "name": "Donkey Kong Country 3",
                "year": 1996, "players": "1-2", "genre": "Plataforma", "desc": "…",
+               "size": 4194304, "id": "<ID da ROM no Drive, só com --drive-ids>",
                "box": "<ref>", "shot": "<ref>", "logo": "<ref>" } ] }
 ```
 - Fontes: `gamelist.xml` de cada sistema (`name`, `desc`, `releasedate`, `players`, `genre`, `thumbnail`,
@@ -66,7 +67,9 @@ Mockups aprovados: `.superpowers/brainstorm/53315-1792431094/content/telas.html`
   hub e por `site/demo/` no demo. Campos vazios são omitidos.
 - `manifest.json` continua (o emulador acha ROM, BIOS, irmãs da pasta e configs do cartão por ele). O seletor
   carrega o manifest em segundo plano depois da primeira tela.
-- `eager.bin` deixa de existir: no modo Drive todos os arquivos ficam sob demanda. `io.js` aceita índice sem eager.
+- `eager.bin` fica só com o que o emulador lê fora de `/roms` e não está no Drive: as configs do RetroArch do cartão
+  (`/home/ark/.config`, ~140 KB). Sai do manifest tudo o que era só do ES: tema, `/usr`, `/etc`, `gamelist.xml` e
+  imagens (as imagens agora vêm pelo `library.json`).
 - Upload: `build/upload/sobe.sh` envia `library.json` para `R36S/.web` junto com o manifest; `drive.libraryIndex`
   devolve também o ID do `library.json`.
 
@@ -79,7 +82,7 @@ sem etapa de build, em `web/app/`:
 |---|---|---|
 | `library.js` | carrega `library.json`, índice por sistema, busca normalizada, ordens | `io.js` |
 | `media.js` | URL de imagem sob demanda (IntersectionObserver), cache/pré-busca do `io.js`, placeholder com o nome | `io.js` |
-| `home.js` · `system.js` · `search.js` · `sheet.js` | as quatro telas | `library.js`, `media.js`, `prefs.js` |
+| `views.js` · `sheet.js` | telas Início, Sistema e Busca; a ficha | `library.js`, `media.js`, `prefs.js` |
 | `nav.js` | foco espacial por controle/teclado: direcional/setas movem, A/Enter abre, B/Esc volta, Start = Jogar na ficha | `settings.js` (mapa do controle) |
 | `prefs.js` | favoritos e recentes (localStorage `r36s-prefs-v1`, try/catch) | — |
 | `launch.js` | antigo `webLaunch` do `bridge.js`: escolhe o núcleo (`cores.json`), iframe `play.html` ou aba isolada (núcleos com threads), volta com código de saída | `cores.json` |
