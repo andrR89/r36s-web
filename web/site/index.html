@@ -4,15 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>R36S Web</title>
-<meta name="description" content="O EmulationStation do dArkOS no navegador, com os seus jogos e saves no Google Drive.">
+<meta name="description" content="Os jogos do seu R36S no navegador, num seletor para PC, celular e controle, com jogos e saves no Google Drive.">
 <meta name="theme-color" content="#ff2e88">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 2 2'%3E%3Crect width='1' height='1' fill='%23ffd23f'/%3E%3Crect x='1' width='1' height='1' fill='%232de2e6'/%3E%3Crect y='1' width='1' height='1' fill='%232ee6a6'/%3E%3Crect x='1' y='1' width='1' height='1' fill='%23ff2e88'/%3E%3C/svg%3E">
 <link rel="preload" href="fonts/press-start-2p.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="site.css">
 </head>
 <body>
-<!-- Telas (SPA, por hash): #/ home · #/entrar login · #/biblioteca · #/jogar (ES do Drive) · #/demo (ES do demo).
-     Visual: canvas Claude Design aprovado (Main, Login, Biblioteca; Comandos e Celular ficam por cima do ES, web/controls.js). -->
+<!-- Telas (SPA, por hash): #/ home · #/entrar login · #/biblioteca · #/jogar (seletor do Drive) · #/demo (seletor do demo).
+     Visual: canvas Claude Design aprovado (Main, Login, Biblioteca; Comandos e Celular ficam por cima do seletor e do jogo, web/controls.js). -->
 
 <div id="home" class="screen" data-screen="home">
   <header class="top">
@@ -35,7 +35,7 @@
       <div class="copy">
         <span class="tag">19 CONSOLES · 6.733 JOGOS</span>
         <h1 class="title">SEU R36S<br><span>NO</span> NAVEGADOR</h1>
-        <p>O EmulationStation de verdade do dArkOS, com o tema do seu cartão e todos os seus jogos. PC, celular ou controle. Os saves ficam no seu Google Drive.</p>
+        <p>Todos os jogos do seu cartão num seletor com capas, busca e o último jogo a um toque. PC, celular ou controle. Os saves ficam no seu Google Drive.</p>
         <div class="cta-row">
           <a class="cta press" href="#/entrar">
             <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="#1b1446"><path d="M6 4l14 8-14 8z"></path></svg>
@@ -69,7 +69,7 @@
   <section id="recursos" class="wrap sec">
     <h2 style="color:#2de2e6">SELECT PLAYER</h2>
     <div class="features">
-      <div class="feature card f1"><span>01</span><h3>ES original</h3><p>O mesmo EmulationStation do dArkOS, em WebAssembly. Mesmo tema, mesmos menus.</p></div>
+      <div class="feature card f1"><span>01</span><h3>Seletor novo</h3><p>Capas por sistema, busca em todos os consoles e ficha de cada jogo para jogar, favoritar ou baixar a ROM.</p></div>
       <div class="feature card f2"><span>02</span><h3>Sua biblioteca</h3><p>Sistemas, capas e gamelists lidos direto da pasta R36S do seu Google Drive.</p></div>
       <div class="feature card f3"><span>03</span><h3>Saves na nuvem</h3><p>Começa no PC, continua no celular. Cada pessoa com os próprios saves.</p></div>
       <div class="feature card f4"><span>04</span><h3>Qualquer controle</h3><p>Teclado, controle USB ou Bluetooth detectado sozinho, joystick na tela do celular e 2 jogadores com dois controles.</p></div>
@@ -86,8 +86,8 @@
         <span class="sub">Capturas do emulador no navegador</span>
       </div>
       <div class="big-shots">
-        <figure><img class="shot" src="img/es-snes.png" alt="EmulationStation com o tema EPICMAX no Super Nintendo" loading="lazy" style="border:6px solid #ffd23f"><figcaption style="color:#ffd23f">Tema EPICMAX · Super Nintendo</figcaption></figure>
-        <figure><img class="shot" src="img/es-psx.png" alt="EmulationStation com o tema EPICMAX no PlayStation" loading="lazy" style="border:6px solid #2de2e6"><figcaption style="color:#2de2e6">Tema EPICMAX · PlayStation</figcaption></figure>
+        <figure><img class="shot" src="img/seletor-pc.png" alt="Seletor de jogos no PC: sistemas na lateral, Continuar e prateleiras de jogos" loading="lazy" style="border:6px solid #ffd23f"><figcaption style="color:#ffd23f">Seletor no PC · modo demonstração</figcaption></figure>
+        <figure><img class="shot" src="img/seletor-celular.png" alt="Seletor de jogos no celular: início, busca e ficha do jogo" loading="lazy" style="border:6px solid #2de2e6"><figcaption style="color:#2de2e6">Seletor no celular · início, busca e ficha</figcaption></figure>
       </div>
       <div class="small-shots">
         <figure><img class="shot" src="img/acecombat3.png" alt="Ace Combat 3 no PlayStation" loading="lazy" style="border:4px solid #ff2e88"><figcaption>PlayStation</figcaption></figure>
@@ -105,7 +105,7 @@
     <ol class="steps">
       <li style="border:4px solid #ffd23f"><span style="color:#ffd23f">1</span><h3>Entre com Google</h3><p>Sem senha nova. O site lê a pasta R36S e grava só os seus saves.</p></li>
       <li style="border:4px solid #2de2e6"><span style="color:#2de2e6">2</span><h3>Escolha a biblioteca</h3><p>A sua pasta R36S, ou a que alguém da família compartilhou com você.</p></li>
-      <li style="border:4px solid #ff2e88"><span style="color:#ff2e88">3</span><h3>Jogue</h3><p>O ES abre em tela cheia com os comandos do seu aparelho.</p></li>
+      <li style="border:4px solid #ff2e88"><span style="color:#ff2e88">3</span><h3>Jogue</h3><p>Escolha no seletor em tela cheia e jogue com os comandos do seu aparelho.</p></li>
     </ol>
   </section>
 

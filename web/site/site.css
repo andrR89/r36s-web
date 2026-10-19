@@ -173,7 +173,7 @@ footer .wrap { padding-top: 28px; padding-bottom: 28px; display: flex; flex-wrap
 .loading { font: 12px var(--pixel); color: var(--cyan); }
 .switch { align-self: flex-start; background: none; border: 0; color: var(--yellow); text-decoration: underline; cursor: pointer; font-size: 14px; padding: 0; }
 
-/* ---------- jogo: ES em tela cheia */
+/* ---------- jogo: seletor em tela cheia */
 #jogar { position: fixed; inset: 0; background: #000; min-height: 0; }
 #jogar iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 
@@ -200,7 +200,7 @@ footer .wrap { padding-top: 28px; padding-bottom: 28px; display: flex; flex-wrap
   .lib h1 { font-size: 16px; }
 }
 
-/* ---------- login vencido (web/site/site.js askGesture): por cima do ES e do jogo */
+/* ---------- login vencido (web/site/site.js askGesture): por cima do seletor e do jogo */
 #renew { position: fixed; inset: 0; z-index: 2147483647; display: grid; place-items: center; padding: 16px; background: rgba(18, 12, 51, .85); }
 .renew-box { max-width: 420px; padding: 24px; background: var(--ink2); border: 3px solid var(--line); text-align: center; }
 .renew-box h2 { margin: 0 0 16px; font-size: 16px; color: var(--yellow); }
