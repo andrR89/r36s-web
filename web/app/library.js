@@ -1,6 +1,6 @@
 // Biblioteca do seletor: data/library.json.gz (gerado por data/mkmanifest.py) com índice por sistema, busca sem acento e
 // ordens. Puro (testes em tests/test_app.mjs).
-export const norm = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+export const norm = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
 const byName = (a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
 export function sortGames(list, order = "az") {
