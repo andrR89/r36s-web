@@ -6,21 +6,26 @@ const key = ref => (typeof ref === "string" ? ref : ref.id);
 
 export function createMedia(io) {
   const urls = new Map();   // chave -> { p: Promise<url>, n: <img> que usam }
-  const take = ref => {
-    const k = key(ref);
+  // a <img> guarda a entrada que pegou (img._u): soltar decrementa essa, não a que estiver no Map agora
+  const take = img => {
+    const k = key(img._ref);
     let u = urls.get(k);
     if (!u) {
-      u = { n: 0, p: io.image(ref) };
+      u = { n: 0 };
+      // wanted: na fila do Drive, uma imagem que todas as <img> já soltaram nem começa a baixar
+      u.p = io.image(img._ref, { wanted: () => u.n > 0 });
       u.p.catch(() => { if (urls.get(k) === u) urls.delete(k); });
       urls.set(k, u);
     }
     u.n++;
+    img._u = u;
     return u.p;
   };
-  const drop = ref => {
-    const k = key(ref), u = urls.get(k);
+  const drop = img => {
+    const u = img._u, k = key(img._ref);
+    img._u = null;
     if (!u || --u.n > 0) return;
-    urls.delete(k);
+    if (urls.get(k) === u) urls.delete(k);
     u.p.then(url => { if (url.startsWith("blob:")) URL.revokeObjectURL(url); }, () => {});
   };
   const obs = new IntersectionObserver(entries => {
@@ -33,7 +38,8 @@ export function createMedia(io) {
   async function show(img) {
     obs.unobserve(img);
     img._took = true;
-    try { const url = await take(img._ref); if (img._took) img.src = url; } catch (e) { img.classList.add("fail"); }
+    try { const url = await take(img); if (img._took) img.src = url; }
+    catch (e) { if (img._took) { img._took = false; drop(img); img.classList.add("fail"); } }   // falhou: solta a entrada
   }
   return {
     // <img> que carrega ao aparecer; sem imagem (ou se falhar) fica invisível e aparece o nome atrás
@@ -50,7 +56,7 @@ export function createMedia(io) {
       for (const i of root.querySelectorAll("img")) {
         if (!i._ref) continue;
         obs.unobserve(i); clearTimeout(i._t);
-        if (i._took) { i._took = false; drop(i._ref); }
+        if (i._took) { i._took = false; drop(i); }
       }
     },
   };

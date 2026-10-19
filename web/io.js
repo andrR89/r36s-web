@@ -194,7 +194,8 @@ export function createIO({ backend, site, preload }) {
     loadIndex,
     // URL de uma imagem do library.json.gz: caminho do cartão (hub/demo: URL direta, cache HTTP) ou {id, v} (Drive: blob).
     // A URL blob é de quem chamou: revogar (URL.revokeObjectURL) quando a imagem sair da tela.
-    async image(ref) {
+    // opts.wanted(): conferido quando chega a vez na fila; se não quer mais (saiu da tela), nem baixa (AbortError).
+    async image(ref, opts = {}) {
       if (typeof ref === "string") return new URL("fs" + enc(ref), backend === "demo" ? demoRoot : ROOT).href;
       if (!drive) throw new Error("imagem do Drive sem login no Drive");
       const c = await cache(), key = cacheKey(ref);
@@ -202,6 +203,7 @@ export function createIO({ backend, site, preload }) {
       if (r) stats.cached++;
       else {
         await slot();
+        if (opts.wanted && !opts.wanted()) { done(); throw new DOMException("imagem fora da tela", "AbortError"); }
         try {
           r = await drive.media(ref.id);
           stats.media++;

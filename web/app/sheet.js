@@ -6,7 +6,8 @@ import { downloadRom } from "./download.js";
 
 // ctx: { lib, media, io, launch(game) -> Promise<código>, onClose(game) }
 export function openSheet(ctx, g, { play = false } = {}) {
-  document.getElementById("sheet")?.remove();
+  const old = document.getElementById("sheet");
+  if (old) { ctx.media.release(old); old.remove(); }
   const sys = ctx.lib.system(g.s);
   const playable = !!(sys && sys.playable);
   const msg = el("p", { class: "msg", role: "status" });

@@ -40,7 +40,29 @@ await p.keyboard.up("Enter"); await p.keyboard.up("Backspace");
 await p.waitForFunction(() => !window.r36s.game, null, { timeout: 20000 }).catch(() => {});
 await p.waitForTimeout(300);
 r.after = await p.evaluate(() => document.activeElement && document.activeElement.className);
-const ok = /^\/roms\//.test(r.first) && r.right !== r.first && /^\/roms\//.test(r.right) && /play/.test(r.sheet) && r.back === r.right && r.started && /play/.test(r.after) && !errs.length;
+// fileiras do Início no PC e no celular: baixo da 1ª capa de uma fileira cai numa capa da fileira seguinte (não na barra
+// lateral nem no "ver todos"); cima volta; baixo da 3ª capa continua numa capa
+async function rows(viewport) {
+  const ctx = await b.newContext({ viewport, ...(viewport.width < 900 ? { isMobile: true, hasTouch: true } : {}) });
+  const q = await ctx.newPage(); q.on("pageerror", e => errs.push(e.message));
+  await q.goto("http://localhost:8770/r36s/");
+  await q.waitForFunction(() => window.r36s && window.r36s.ready, null, { timeout: 60000 });
+  const at = () => q.evaluate(() => { const e = document.activeElement; return { rom: e.dataset.rom || null, row: e.closest(".row")?.dataset.row || null }; });
+  const out = {};
+  const start = n => q.evaluate(n => { const c = document.querySelectorAll('[data-sys="nes"] .cover')[n]; c.scrollIntoView({ block: "center" }); c.focus(); }, n);
+  const next = await q.evaluate(() => document.querySelector('[data-sys="nes"]').nextElementSibling.dataset.row);
+  await start(0); await q.waitForTimeout(300);
+  await q.keyboard.press("ArrowDown"); await q.waitForTimeout(400); out.down = await at();
+  await q.keyboard.press("ArrowUp"); await q.waitForTimeout(400); out.up = await at();
+  await start(2); await q.waitForTimeout(300);
+  await q.keyboard.press("ArrowDown"); await q.waitForTimeout(400); out.down3 = await at();
+  out.ok = !!out.down.rom && out.down.row === next && out.up.row === "nes" && !!out.up.rom && !!out.down3.rom && out.down3.row === next;
+  await ctx.close();
+  return out;
+}
+r.rowsPC = await rows({ width: 1280, height: 800 });
+r.rowsPhone = await rows({ width: 412, height: 915 });
+const ok = r.rowsPC.ok && r.rowsPhone.ok && /^\/roms\//.test(r.first) && r.right !== r.first && /^\/roms\//.test(r.right) && /play/.test(r.sheet) && r.back === r.right && r.started && /play/.test(r.after) && !errs.length;
 console.log(JSON.stringify({ ok, ...r, errs }));
 await b.close();
 process.exit(ok ? 0 : 1);
