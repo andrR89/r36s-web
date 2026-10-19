@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Mock local da API do Google Drive v3 — só o que web/drive.js usa — para testar o site sem o Google.
 
-  python3 tests/mock_drive.py <porta> --library <pasta> [--index <pasta com manifest.json/eager.bin/info.json>]
+  python3 tests/mock_drive.py <porta> --library <pasta> [--index <pasta com manifest.json/eager.bin/info.json/library.json.gz>]
   python3 tests/mock_drive.py --lsjson <pasta> > lista.json     # listagem no formato `rclone lsjson -R --hash`
 
 A <pasta> faz o papel de "R36S" no Drive (raiz do cartão de ROMs). IDs são estáveis (sha1 do caminho), os mesmos
@@ -92,7 +92,7 @@ class Store:
             if self.index:
                 web = fid("web")
                 self.add(web, ".web", FOLDER, libroots, "andre")
-                for n in ("manifest.json", "eager.bin", "info.json"):
+                for n in ("manifest.json", "eager.bin", "info.json", "library.json.gz"):
                     p = os.path.join(self.index, n)
                     if os.path.exists(p):
                         self.add(fid("web", n), n, "application/octet-stream", [web], "andre", real=p)
@@ -271,7 +271,7 @@ def main():
     ap = argparse.ArgumentParser(description="mock do Google Drive v3 para os testes do site")
     ap.add_argument("port", nargs="?", type=int)
     ap.add_argument("--library", help="pasta que faz o papel de R36S no Drive")
-    ap.add_argument("--index", help="pasta com manifest.json/eager.bin/info.json (vira R36S/.web)")
+    ap.add_argument("--index", help="pasta com manifest.json/eager.bin/info.json/library.json.gz (vira R36S/.web)")
     ap.add_argument("--lsjson", metavar="PASTA", help="só imprime a listagem estilo rclone lsjson -R --hash")
     a = ap.parse_args()
     if a.lsjson:

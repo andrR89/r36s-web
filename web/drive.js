@@ -63,11 +63,11 @@ export function createDrive({ api = "https://www.googleapis.com", getToken, peek
     if (!web) return null;
     const files = await list(`'${quote(web.id)}' in parents and trashed = false`);
     const by = Object.fromEntries(files.map(f => [f.name, f]));
-    if (!by["manifest.json"] || !by["eager.bin"]) return null;
+    if (!by["manifest.json"] || !by["eager.bin"] || !by["library.json.gz"]) return null;
     let info = null;
     if (by["info.json"]) { try { const r = await req(mediaPath(by["info.json"].id)); if (r.ok) info = await r.json(); } catch (e) {} }
-    return { manifest: by["manifest.json"].id, eager: by["eager.bin"].id, info, modifiedTime: by["manifest.json"].modifiedTime,
-      eagerTime: by["eager.bin"].modifiedTime };
+    return { manifest: by["manifest.json"].id, eager: by["eager.bin"].id, library: by["library.json.gz"].id, info,
+      modifiedTime: by["manifest.json"].modifiedTime, eagerTime: by["eager.bin"].modifiedTime, libraryTime: by["library.json.gz"].modifiedTime };
   }
 
   // saves: <SAVES_NAME>/<sistema>/<arquivo>, no Drive de quem joga (escopo drive.file: só vê o que o app criou)
