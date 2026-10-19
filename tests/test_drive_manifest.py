@@ -6,6 +6,7 @@ import mkmanifest
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 SYSTEMS = """<systemList><system><name>snes</name><path>/roms/snes/</path><extension>.7z .cue</extension></system>
+<system><name>ports</name><path>/roms/ports/</path><extension>.sh</extension></system>
 <system><name>n64</name><path>/roms/n64/</path><extension>.z64</extension></system></systemList>"""
 
 def touch(root, rel, data=b""):
@@ -24,6 +25,9 @@ class DriveIds(unittest.TestCase):
         touch(self.src, "/roms/snes/Disco.cue", b'FILE "Disco.bin" BINARY')
         touch(self.src, "/roms/snes/Disco.bin", b"BIN")
         touch(self.src, "/roms/snes/Jogo.srm", b"SRM")
+        touch(self.src, "/roms/snes/sub/Disco2.cue", b'FILE "Disco2.bin" BINARY')
+        touch(self.src, "/roms/snes/sub/Disco2.bin", b"BIN2")
+        touch(self.src, "/roms/ports/x.sh", b"#!/bin/sh")
         touch(self.src, "/roms/snes/images/Jogo.png", b"PNG")
         touch(self.src, "/roms/themes/t/theme.xml", b"<theme/>")
         touch(self.src, "/roms/themes/t/bg.jpg", b"JPG")
@@ -51,11 +55,15 @@ class DriveIds(unittest.TestCase):
         self.assertEqual(os.path.getsize(os.path.join(self.out, "eager.bin")), 0)
 
     def test_extra_keeps_sheet_tracks_and_saves(self):
-        self.assertIn("/roms/snes/Disco.bin", self.m["extra"] | self.m["files"])
+        self.assertIn("/roms/snes/Disco.bin", self.m["files"])   # topo da pasta: no manifest
+        self.assertIn("/roms/snes/sub/Disco2.bin", self.m["extra"])   # subpasta: só no extra
+        self.assertNotIn("/roms/snes/sub/Disco2.bin", self.m["files"])
+        for k in ("files", "extra"):
+            self.assertNotIn("/roms/ports/x.sh", self.m[k])
 
     def test_info_and_library_written(self):
         info = json.load(open(os.path.join(self.out, "info.json")))
-        self.assertEqual((info["systems"], info["games"]), (1, 2))
+        self.assertEqual((info["systems"], info["games"]), (1, 3))
         self.assertTrue(os.path.isfile(os.path.join(self.out, "library.json.gz")))
 
     def test_read_lsjson_skips_dirs(self):

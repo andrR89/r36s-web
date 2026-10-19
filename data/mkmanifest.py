@@ -287,7 +287,7 @@ def drive_extra(drive_ids, files, systems):
     extra = {}
     for rel, d in drive_ids.items():
         vpath = "/roms/" + rel
-        if vpath in files or not vpath.startswith(prefixes) or any(part.startswith(".") for part in rel.split("/")):
+        if vpath in files or not vpath.startswith(prefixes) or vpath.startswith("/roms/ports/") or any(part.startswith(".") for part in rel.split("/")):
             continue
         if os.path.splitext(rel)[1].lower() in MEDIA_EXT or "/images/" in vpath or "/videos/" in vpath:
             continue
