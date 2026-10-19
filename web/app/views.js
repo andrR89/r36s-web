@@ -12,7 +12,7 @@ export const el = (tag, attrs = {}, ...kids) => {
   for (const c of kids) if (c != null) e.append(c);
   return e;
 };
-const ROW_MAX = 20;
+const ROW_MAX = 20, SEARCH_MAX = 200;
 const fmt = n => Number(n).toLocaleString("pt-BR");
 
 // ctx: { lib, media, openSheet(game), go(hash) }
@@ -65,9 +65,10 @@ export function renderSystem(ctx, id, order) {
 }
 
 export function renderSearch(ctx, q) {
-  const hits = ctx.lib.search(q);
+  const all = ctx.lib.search(q, SEARCH_MAX + 1), hits = all.slice(0, SEARCH_MAX);
+  const n = all.length > SEARCH_MAX ? `${fmt(SEARCH_MAX)}+` : fmt(hits.length);
   return el("div", { class: "results" },
-    el("p", { class: "count", text: q.trim() ? `${fmt(hits.length)} ${hits.length === 1 ? "jogo" : "jogos"}` : "Digite o nome de um jogo" }),
+    el("p", { class: "count", role: "status", text: q.trim() ? `${n} ${hits.length === 1 ? "jogo" : "jogos"}` : "Digite o nome de um jogo" }),
     ...hits.map(g => { const s = ctx.lib.system(g.s);
       return el("button", { type: "button", class: "hit", "data-nav": true, "data-rom": g.rom, onclick: () => ctx.openSheet(g) },
         el("span", { class: "art" }, el("span", { class: "ph", text: "" }), ctx.media.img(g.box || g.shot)),
@@ -76,5 +77,7 @@ export function renderSearch(ctx, q) {
 
 export function renderSide(ctx, current) {
   const link = (hash, text, on) => el("a", { href: hash, "data-nav": true, class: on ? "on" : "", text });
-  return [link("#/", "Início", current === "home"), ...ctx.lib.systems.map(s => link(`#/s/${s.id}`, s.name, current === s.id))];
+  const fav = P.load().fav.some(r => ctx.lib.byRom(r))
+    ? el("a", { href: "#/", "data-nav": true, text: "★ Favoritos", onclick: e => { e.preventDefault(); ctx.showFav(); } }) : null;
+  return [link("#/", "Início", current === "home"), fav, ...ctx.lib.systems.map(s => link(`#/s/${s.id}`, s.name, current === s.id))].filter(Boolean);
 }

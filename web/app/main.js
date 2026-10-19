@@ -14,7 +14,7 @@ const t0 = performance.now();
 const $ = s => document.querySelector(s);
 const status = $("#status");
 const showFatal = (what, e) => {
-  if (window.r36s && window.r36s.error) return;
+  if (window.r36s && window.r36s.error || status.className === "err") return;   // já tem uma explicação na tela
   const msg = String(e && (e.message || e) || e).slice(0, 300);
   status.className = "err";
   status.textContent = `Erro: ${what}. ${msg} — ${navigator.userAgent.replace(/^Mozilla\/5.0 /, "").slice(0, 120)}`;
@@ -58,6 +58,14 @@ const ctx = {
   lib, media, io,
   go: (hash, replace) => { replace ? history.replaceState(null, "", hash) : history.pushState(null, "", hash); route(); },
   openSheet: (g, opts) => openSheet(sheetCtx, g, opts),
+  // "Favoritos" da barra lateral: a fileira do Início
+  showFav: () => {
+    if (current !== "home") ctx.go("#/");
+    const r = view.querySelector('[data-row="fav"]');
+    if (!r) return;
+    r.scrollIntoView({ block: "start" });
+    r.querySelector("[data-nav]:not(.more)")?.focus({ preventScroll: true });
+  },
 };
 const sheetCtx = {
   lib, media, io,
@@ -70,7 +78,9 @@ const sheetCtx = {
     if (!back && rowId === "hero") back = view.querySelector(".hero .play");
     if (!back && rowId) back = view.querySelector(`[data-row="${CSS.escape(rowId)}"] [data-rom="${CSS.escape(rom)}"]`);
     if (!back) back = view.querySelector(`[data-rom="${CSS.escape(rom)}"]`);
-    (back || app).focus({ preventScroll: true });
+    side.replaceChildren(...renderSide(ctx, current));   // "Favoritos" aparece/some
+    if (back) { back.focus({ preventScroll: true }); back.scrollIntoView({ block: "nearest", inline: "nearest" }); }
+    else app.focus({ preventScroll: true });
   },
 };
 let current = null, last = null, homePrefs = "";
@@ -78,7 +88,7 @@ document.addEventListener("focusin", e => { if (e.target.closest && e.target.clo
 // Início refeito só se recentes/favoritos mudaram (senão o foco e as imagens ficam como estão), mantendo a rolagem
 function refreshHome() {
   if (JSON.stringify(P.load()) === homePrefs) return;
-  const y = scrollY; view.replaceChildren(home()); scrollTo(0, y);
+  const y = scrollY; media.release(view); view.replaceChildren(home()); scrollTo(0, y);
 }
 const home = () => { homePrefs = JSON.stringify(P.load()); return renderHome(ctx); };
 
@@ -91,6 +101,7 @@ function route() {
   else if (path === "/busca") { current = "busca"; const v = params.get("q") || ""; if (q.value !== v) q.value = v; node = renderSearch(ctx, v); }
   else { current = "home"; node = home(); }
   if (current !== "busca" && q.value && document.activeElement !== q) q.value = "";   // saiu da busca: campo limpo
+  media.release(view);   // Drive: as capas da tela anterior soltam os blobs
   view.replaceChildren(node);
   side.replaceChildren(...renderSide(ctx, current));
   if (current !== "busca") scrollTo(0, 0);
@@ -104,19 +115,24 @@ q.addEventListener("input", () => {
 $(".brand").addEventListener("click", () => ctx.go("#/"));
 
 // menu ≡: Comandos (painel de controles), tela cheia, voltar ao site
-const menu = el("div", { id: "menu-pop", role: "menu", hidden: true });
-const item = (label, fn) => el("button", { type: "button", role: "menuitem", "data-nav": true, text: label, onclick: () => { menu.hidden = true; fn(); } });
+const menu = el("div", { id: "menu-pop", role: "menu", hidden: true }), menuBtn = $("#menu");
+const showMenu = on => { menu.hidden = !on; menuBtn.setAttribute("aria-expanded", String(on)); };
+const item = (label, fn) => el("button", { type: "button", role: "menuitem", "data-nav": true, text: label, onclick: () => { showMenu(false); fn(); } });
 menu.append(item("Comandos", () => controls.open()),
   item("Tela cheia", () => (document.fullscreenElement ? document.exitFullscreen() : (parent !== window ? parent.document.documentElement : document.documentElement).requestFullscreen()).catch(() => {})),
   ...(site && site.exit ? [item("Voltar ao site", () => site.exit())] : []));
 document.body.append(menu);
-$("#menu").addEventListener("click", () => { menu.hidden = !menu.hidden; if (!menu.hidden) menu.querySelector("button").focus(); });
+showMenu(false);
+menuBtn.addEventListener("click", () => { showMenu(menu.hidden); if (!menu.hidden) menu.querySelector("button").focus(); });
+// toque/clique fora fecha o menu
+addEventListener("pointerdown", e => { if (!menu.hidden && !menu.contains(e.target) && !menuBtn.contains(e.target)) showMenu(false); }, true);
 
 installNav({ blocked: () => !!window.r36s.game || !!controls.panel,
   back: () => {
-    if (!menu.hidden) { menu.hidden = true; return $("#menu").focus(); }
+    if (!menu.hidden) { showMenu(false); return menuBtn.focus(); }
     if (document.getElementById("sheet")) return history.back();
-    if (current !== "home") return ctx.go("#/");   // não usa history.back(): no iframe ele pode voltar a página do site
+    // não usa history.back(): no iframe ele pode voltar a página do site; replace: o Voltar do navegador não reabre a tela
+    if (current !== "home") { q.value = ""; return ctx.go("#/", true); }
   } });
 
 route();

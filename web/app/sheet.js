@@ -35,8 +35,18 @@ export function openSheet(ctx, g, { play = false } = {}) {
     playBtn.focus();
   });
   const tags = [sys ? sys.name : g.s, g.year, g.players && `${g.players} jogador${g.players === "1" ? "" : "es"}`, g.genre].filter(Boolean);
-  const close = () => { box.remove(); removeEventListener("popstate", onPop); ctx.onClose(g); };
-  const onPop = () => { if (document.getElementById("sheet") === box) close(); };
+  const app = document.getElementById("app");
+  const close = () => {
+    if (abort) abort.abort();   // download da ROM em andamento: cancela
+    ctx.media.release(box); box.remove(); removeEventListener("popstate", onPop);
+    app.inert = false; ctx.onClose(g);
+  };
+  const onPop = () => {
+    if (document.getElementById("sheet") !== box) return;
+    // Voltar do Android com o jogo aberto: a ficha fica (o jogo sai pelo Select+Start); repõe a entrada do histórico
+    if (window.r36s.game) return history.pushState({ sheet: true }, "");
+    close();
+  };
   const box = el("div", { id: "sheet", role: "dialog", "aria-modal": "true", "aria-label": g.name, onclick: e => { if (e.target === box) history.back(); } },
     el("div", { class: "panel" },
       el("button", { type: "button", class: "x", "data-nav": true, "aria-label": "Fechar", text: "✕", onclick: () => history.back() }),
@@ -45,11 +55,12 @@ export function openSheet(ctx, g, { play = false } = {}) {
       el("div", { class: "tags" }, ...tags.map(t => el("span", { text: String(t) }))),
       g.desc ? el("p", { class: "desc", text: g.desc }) : null,
       playable ? null : el("p", { class: "note", text: `Sem emulador no navegador${sys && sys.note ? `: ${sys.note}` : ""}.` }),
-      el("div", { class: "btns" }, playBtn, favBtn, romBtn),
+      el("div", { class: "btns" }, playable ? playBtn : null, favBtn, romBtn),
       msg));
   history.pushState({ sheet: true }, "");
   addEventListener("popstate", onPop);
   document.body.append(box);
+  app.inert = true;   // leitor de tela e Tab só na ficha
   (playable ? playBtn : favBtn).focus();
   if (play && playable) playBtn.click();
   return box;

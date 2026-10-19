@@ -19,7 +19,11 @@ export function move(dir) {
     const b = e.getBoundingClientRect(), dx = b.left + b.width / 2 - ax, dy = b.top + b.height / 2 - ay;
     const ahead = dir === "right" ? dx > 4 : dir === "left" ? dx < -4 : dir === "down" ? dy > 4 : dy < -4;
     if (!ahead) continue;
-    const d = horiz ? Math.abs(dx) + Math.abs(dy) * 3 : Math.abs(dy) + Math.abs(dx) * 3;
+    // o desvio lateral conta pela folga entre as caixas (0 se se sobrepõem), senão o "ver todos" da fileira de baixo
+    // ganha das capas logo abaixo
+    const gap = horiz ? Math.max(0, Math.max(a.top, b.top) - Math.min(a.bottom, b.bottom))
+      : Math.max(0, Math.max(a.left, b.left) - Math.min(a.right, b.right));
+    const d = (horiz ? Math.abs(dx) : Math.abs(dy)) + gap * 3 + (horiz ? Math.abs(dy) : Math.abs(dx));
     if (d < bestD) { bestD = d; best = e; }
   }
   if (!best) return;
@@ -32,6 +36,8 @@ export function installNav({ blocked, back }) {
   addEventListener("keydown", e => {
     if (blocked()) return;
     const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    // tecla segurada: a repetição não aperta de novo (nem o click nativo do Enter), senão o A segurado abre o jogo
+    if (e.repeat && (k === "l" || k === "Enter" || k === " ")) { e.preventDefault(); return; }
     const typing = e.isTrusted && e.target instanceof HTMLInputElement;
     if (typing && (k.length === 1 || k === "Backspace" || k === "ArrowLeft" || k === "ArrowRight")) return;   // texto da busca
     const dir = DIR[k];
