@@ -168,7 +168,8 @@ def read_systems_full(src):
         p = os.path.join(src, rel)
         if not os.path.isfile(p):
             continue
-        txt = open(p, encoding="utf-8", errors="replace").read()
+        with open(p, encoding="utf-8", errors="replace") as f:
+            txt = f.read()
         out, seen = [], set()
         for block in re.findall(r"<system>.*?</system>", txt, re.S):
             tag = lambda t: (re.search(f"<{t}>(.*?)</{t}>", block, re.S) or [None, ""])[1].strip()
@@ -209,7 +210,8 @@ SKIP_DIRS = ("/images/", "/media/", "/videos/", "/manuals/", "/snap/")
 
 def cited_by_sheet(real, vdir):
     """Arquivos que um .cue/.m3u/.gdi cita (mesma regra do companionsOf do play.js)."""
-    txt = open(real, encoding="utf-8", errors="replace").read()
+    with open(real, encoding="utf-8", errors="replace") as f:
+        txt = f.read()
     ext = os.path.splitext(real)[1].lower()
     if ext == ".cue":
         names = [a or b for a, b in re.findall(r'^\s*FILE\s+(?:"([^"]+)"|(\S+))', txt, re.M | re.I)]
@@ -234,7 +236,7 @@ def write_library(out, src, tree, drive_ids, cores_path):
         return {"id": d["id"], "v": d["v"]} if d else None
     out_systems, out_games = [], []
     for pos, s in enumerate(systems):
-        folder = os.path.basename(s["dir"])
+        folder = s["dir"].split("/")[2]   # id = pasta logo abaixo de /roms (pico-8/carts -> pico-8)
         prefix = s["dir"] + "/"
         mine = sorted(vp for vp in files if vp.startswith(prefix) and not any(x in vp[len(s["dir"]):] for x in SKIP_DIRS)
                       and any(vp.endswith(e) for e in s["exts"]))
