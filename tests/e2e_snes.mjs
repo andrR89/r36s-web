@@ -1,10 +1,11 @@
-// node tests/e2e_snes.mjs [url] [saida] — ponta a ponta: ES -> DK2 no RetroArch (iframe) -> Select+Start -> ES;
-// confere o save semeado do DK3 no servidor; abre o DK3 e fotografa a tela de arquivos (save carregado).
+// node tests/e2e_snes.mjs [url] [saida] — ponta a ponta pelo seletor: grade do SNES (#/s/snes) -> capa do DK2 -> ficha ->
+// Jogar -> RetroArch (iframe) -> Select+Start (Backspace+Enter) -> volta à ficha com o foco no Jogar; confere que o save
+// semeado do DK3 no servidor não mudou; abre o DK3 pela capa e fotografa a tela de arquivos (save carregado).
 import { chromium } from "/home/andre/Workspace/web-ports/tools/pw/node_modules/playwright-core/index.mjs";
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { carouselIndex, gameIndex } from "./eslist.mjs";
 const url = process.argv[2] ?? "http://localhost:8770/r36s/";
+const ROM = name => `/roms/snes/${name}.7z`;   // data-rom das capas
 const out = process.argv[3] ?? "/home/andre/Workspace/web-ports/r36s/tests/out";
 mkdirSync(out, { recursive: true });
 const DK2 = "Donkey Kong Country 2 - Diddy's Kong Quest (USA) (PT-BR)";
@@ -51,14 +52,18 @@ const selectStart = async () => {   // Select (Backspace) segurado + Start (Ente
   await page.keyboard.down("Enter"); await page.waitForTimeout(400);
   await page.keyboard.up("Enter"); await page.keyboard.up("Backspace");
 };
-const waitLit = async (frame, min, ms) => { const t = Date.now(); let v = 0; while (Date.now() - t < ms) { v = await lit(frame); if (v > min) return v; await page.waitForTimeout(500); } return v; };
 const gameFrame = () => page.frames().find(f => /retroarch\/play\.html/.test(f.url()));
 
-async function launchSelected(expect) {
-  await hold("l");                   // A
+// capa (data-rom) -> ficha -> Jogar; espera o jogo iniciar no iframe
+async function launchCover(name) {
+  const cover = page.locator(`.grid .cover[data-rom="${ROM(name)}"]`);
+  if (!(await cover.count())) return { missing: true };
+  await cover.click();
+  await page.waitForSelector("#sheet .play");
+  await page.click("#sheet .play");
   await page.waitForFunction(() => window.r36s.game, null, { timeout: 15000 });
   const rom = await page.evaluate(() => window.r36s.game.rom);
-  if (!rom.includes(expect)) return { rom, wrong: true };
+  if (rom !== ROM(name)) return { rom, wrong: true };
   await page.waitForFunction(() => window.r36s.game?.started, null, { timeout: 60000 });
   return { rom };
 }
@@ -68,32 +73,28 @@ async function exitGame() {
   catch (e) { return null; }
   return page.evaluate(() => window.r36s.lastGame);
 }
+const focusOnPlay = async () => { await page.waitForTimeout(300); return page.evaluate(() => document.activeElement === document.querySelector("#sheet .play")); };
 
-// --- 1. ES até a lista de jogos
+// --- 1. grade do SNES no seletor
 const seed = readFileSync(DK3_SEED);
 const savePath = `saves/snes/${encodeURIComponent(DK3 + ".srm")}`;
 const before = Buffer.from(await (await fetch(new URL(savePath, url))).arrayBuffer());
 step("dk3_save_seed", { server: md5(before), card: md5(seed), equal: before.equals(seed) });
-await page.goto(url);
+await page.goto(url + "#/s/snes");
 await page.waitForFunction(() => window.r36s?.ready, null, { timeout: 120000 });
-if (await waitLit(page, 0.05, 30000) <= 0.05) await fail("ES não apareceu");
-await page.waitForTimeout(4000);
-// cartão real: o ES abre nos Favoritos; desce o carrossel (vertical no EPICMAX) até o SNES (sem clicar: testa o foco)
-const sysIdx = carouselIndex("snes"), dk2Idx = gameIndex("snes", DK2 + ".7z");
-step("positions", { snes: sysIdx, dk2: dk2Idx, dk3: gameIndex("snes", DK3 + ".7z") });
-if (sysIdx < 0 || dk2Idx < 0) await fail("SNES/DK2 não encontrados no cartão");
-for (let i = 0; i < sysIdx; i++) { await hold("s", 80); await page.waitForTimeout(120); }
-await page.waitForTimeout(1500);
-await hold("l");                           // A: entra no SNES
-await page.waitForTimeout(3000);
-for (let i = 0; i < dk2Idx; i++) { await hold("s", 30); await page.waitForTimeout(30); }   // DK2 na lista de 989
+await page.waitForSelector(".grid .cover", { timeout: 30000 });
+const covers = await page.evaluate(([a, b]) => { const all = [...document.querySelectorAll(".grid .cover")].map(c => c.dataset.rom);
+  return { total: all.length, dk2: all.indexOf(a), dk3: all.indexOf(b) }; }, [ROM(DK2), ROM(DK3)]);
+step("covers", covers);
+if (covers.dk2 < 0 || covers.dk3 < 0) await fail("DK2/DK3 não estão na grade do SNES");
+await page.locator(`.grid .cover[data-rom="${ROM(DK2)}"]`).scrollIntoViewIfNeeded();
 await page.waitForTimeout(1500);
 await page.screenshot({ path: `${out}/e2e-1-lista-dk2.png` });
 
 // --- 2. DK2 no RetroArch
-const l1 = await launchSelected(DK2);
+const l1 = await launchCover(DK2);
 step("launch_dk2", l1);
-if (l1.wrong) await fail("jogo errado selecionado: " + l1.rom);
+if (l1.missing || l1.wrong) await fail("jogo errado/ausente: " + JSON.stringify(l1));
 await page.waitForTimeout(15000);
 const f1 = gameFrame();
 const gameLit = f1 ? await lit(f1) : 0;
@@ -106,15 +107,14 @@ for (const k of ["Enter", "Enter", "Enter", "d", "a", "Enter"]) { await hold(k, 
 await page.screenshot({ path: `${out}/e2e-3-dk2-teclas.png` });
 step("dk2_lit_after_keys", f1 ? await lit(f1) : 0);
 
-// --- 3. Select+Start -> ES
+// --- 3. Select+Start -> ficha do DK2, foco no Jogar
 const g1 = await exitGame();
 step("exit_dk2", g1 && { code: g1.code, why: g1.why, started: g1.started });
 if (!g1) await fail("Select+Start não saiu do jogo");
-const esLit = await waitLit(page, 0.05, 20000);
-await page.waitForTimeout(2000);
-await page.screenshot({ path: `${out}/e2e-4-volta-es.png` });
-step("es_back_lit", esLit);
-if (esLit <= 0.05) await fail("ES não voltou");
+const focus1 = await focusOnPlay();
+await page.screenshot({ path: `${out}/e2e-4-volta-ficha.png` });
+step("back_focus_play", focus1);
+if (!focus1) await fail("foco não voltou para o Jogar da ficha");
 if (await page.locator("#game").count()) await fail("iframe ficou na página");
 
 // --- 4. save do DK3 continua igual ao semeado
@@ -123,11 +123,14 @@ step("dk3_save_unchanged", { equal: after.equals(before), md5: md5(after) });
 if (!after.equals(before)) await fail("save do DK3 mudou sem ter sido jogado");
 
 // --- 5. DK3: o save semeado aparece na tela de arquivos
-await hold("s"); await page.waitForTimeout(1500);   // DK2 -> DK3 (o ES lembra a posição)
+await page.click("#sheet .x");   // fecha a ficha do DK2 (volta à grade)
+await page.waitForSelector("#sheet", { state: "detached" });
+await page.locator(`.grid .cover[data-rom="${ROM(DK3)}"]`).scrollIntoViewIfNeeded();
+await page.waitForTimeout(1000);
 await page.screenshot({ path: `${out}/e2e-5-lista-dk3.png` });
-const l2 = await launchSelected(DK3);
+const l2 = await launchCover(DK3);
 step("launch_dk3", l2);
-if (l2.wrong) await fail("jogo errado selecionado: " + l2.rom);
+if (l2.missing || l2.wrong) await fail("jogo errado/ausente: " + JSON.stringify(l2));
 const f2 = gameFrame();
 step("dk3_srm_loaded", await f2.evaluate(() => { try { return window.r36sPlay.module.FS.stat("/home/web_user/retroarch/userdata/saves/" +
   decodeURIComponent(new URLSearchParams(location.search).get("rom").split("/").pop().replace(/\.7z$/, ".srm"))).size; } catch (e) { return String(e); } }));
@@ -150,8 +153,10 @@ step("dk3_lit", await lit(f2));
 const g2 = await exitGame();
 step("exit_dk3", g2 && { code: g2.code, why: g2.why });
 if (!g2) await fail("Select+Start não saiu do DK3");
-await waitLit(page, 0.05, 20000); await page.waitForTimeout(2000);
-await page.screenshot({ path: `${out}/e2e-7-volta-es.png` });
+const focus2 = await focusOnPlay();
+await page.screenshot({ path: `${out}/e2e-7-volta-ficha.png` });
+step("back_focus_play_dk3", focus2);
+if (!focus2) await fail("foco não voltou para o Jogar da ficha do DK3");
 const after3 = Buffer.from(await (await fetch(new URL(savePath, url))).arrayBuffer());
 // o snes9x grava a SRAM inteira que o cabeçalho da ROM traduzida declara (1024 Kbit = 128 KB); o arquivo do cartão
 // tem 2 KB. O que importa: os 2 KB originais continuam iguais (nada foi perdido) e o .bak guarda a versão anterior.
