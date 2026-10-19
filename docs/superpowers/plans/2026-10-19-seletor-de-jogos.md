@@ -1054,8 +1054,13 @@ try {
   const r = await io.fetchFrom(location.href)("data/library.json.gz");
   if (r.status === 404) throw Object.assign(new Error("biblioteca sem library.json.gz"), { old: true });
   if (!r.ok) throw new Error(`library.json.gz HTTP ${r.status}`);
-  // gzip feito pelo gerador (o hub e o Drive podem mandar sem compressão): descompacta aqui
-  lib = createLibrary(await new Response(r.body.pipeThrough(new DecompressionStream("gzip"))).json());
+  // gzip feito pelo gerador (o hub e o Drive podem mandar sem compressão): descompacta aqui; se um servidor já
+  // descompactou (Content-Encoding: gzip), os bytes não começam com 1f 8b e vão direto
+  const buf = new Uint8Array(await r.arrayBuffer());
+  const text = buf[0] === 0x1f && buf[1] === 0x8b
+    ? await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).text()
+    : new TextDecoder().decode(buf);
+  lib = createLibrary(JSON.parse(text));
 } catch (e) {
   status.className = "err";
   status.textContent = e.old ? "Esta biblioteca precisa ser atualizada: rode data/mkmanifest.py --drive-ids e build/upload/sobe.sh (docs/deploy.md)." : `Não deu para abrir a biblioteca: ${e.message}`;
