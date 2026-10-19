@@ -47,6 +47,7 @@ class DriveIds(unittest.TestCase):
     def test_roms_have_ids(self):
         f = self.m["files"]["/roms/snes/Jogo.7z"]
         self.assertEqual((f["kind"], f["id"]), ("empty", self.ids["snes/Jogo.7z"]))
+        self.assertTrue(f["v"])   # md5 -> versão do cache
 
     def test_no_es_files(self):
         for p in self.m["files"]:

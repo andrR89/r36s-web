@@ -33,6 +33,7 @@ def read_systems(src):
             return out
     return None
 
+MEDIA_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".mkv", ".avi", ".pdf", ".txt", ".xml", ".nfo"}
 MEDIA_DIRS = ("/images/", "/media/", "/videos/", "/manuals/", "/snap/")
 
 class CardRules:
@@ -59,6 +60,8 @@ class CardRules:
                     return "empty"
                 if os.path.dirname(vpath) != prefix:
                     return None   # apoio em subpasta: o player busca direto (fs/ ou extra do Drive)
+                if name.startswith("gamelist.xml") or os.path.splitext(name)[1].lower() in MEDIA_EXT:
+                    return None   # backup de gamelist e mídia solta: não é apoio do player
                 return "lazy" if size else "empty"
         return None
 
@@ -85,7 +88,6 @@ def walk(src):
             files.append((vroot.rstrip("/") + "/" + fn, real, size))
         yield vroot, files
 
-MEDIA_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".mkv", ".avi", ".pdf", ".txt", ".xml", ".nfo"}
 
 def read_lsjson(path):
     """{'snes/Jogo.7z': {'id', 'size', 'v'}} de `rclone lsjson -R --hash` (só arquivos)."""
@@ -143,7 +145,6 @@ def read_gamelist(real, vdir):
     return out
 
 SHEET_EXT = (".cue", ".m3u", ".gdi")
-SKIP_DIRS = ("/images/", "/media/", "/videos/", "/manuals/", "/snap/")
 
 def cited_by_sheet(real, vdir):
     """Arquivos que um .cue/.m3u/.gdi cita (mesma regra do companionsOf do play.js)."""
@@ -183,7 +184,7 @@ def write_library(out, src, tree, drive_ids, cores_path):
     for pos, s in enumerate(systems):
         folder = s["dir"].split("/")[2]   # id = pasta logo abaixo de /roms (pico-8/carts -> pico-8)
         prefix = s["dir"] + "/"
-        mine = sorted(vp for vp in files if vp.startswith(prefix) and not any(x in vp[len(s["dir"]):] for x in SKIP_DIRS)
+        mine = sorted(vp for vp in files if vp.startswith(prefix) and not any(x in vp[len(s["dir"]):] for x in MEDIA_DIRS)
                       and any(vp.endswith(e) for e in s["exts"]))
         mine_set = set(mine)
         meta, hidden = {}, set()
@@ -246,8 +247,6 @@ def build(src, out, drive_ids=None, cores=None):
                 kind = classify(vpath, size)
                 if kind is None:
                     continue
-                if drive_ids is not None and kind == "lazy" and not vpath.startswith("/roms/"):
-                    kind = "eager"   # fora do Drive: vai no pacote
                 entry = {"size": size, "kind": kind}
                 if kind == "eager":
                     entry["off"] = off

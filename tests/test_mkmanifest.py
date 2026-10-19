@@ -13,6 +13,8 @@ def touch(root, rel, data=b""):
 class T(unittest.TestCase):
     def setUp(self):
         self.src = tempfile.mkdtemp(); self.out = tempfile.mkdtemp()
+        real = tempfile.mkdtemp()   # roms/ é symlink para o cartão montado
+        os.symlink(real, os.path.join(self.src, "roms"))
         touch(self.src, "/etc/emulationstation/es_systems.cfg", SYSTEMS)
         touch(self.src, "/home/ark/.config/retroarch/retroarch-core-options.cfg", b"opt = 1")
         touch(self.src, "/home/ark/.emulationstation/es_settings.cfg", b"<config/>")
@@ -25,6 +27,9 @@ class T(unittest.TestCase):
         touch(self.src, "/roms/bios/scph1001.bin", b"BIOS")
         touch(self.src, "/roms/snes/sub/dados.dat", b"DAT")
         touch(self.src, "/roms/snes/sub/Outro (USA).7z", b"ROM2")
+        touch(self.src, "/roms/snes/.oculto.7z", b"H")
+        touch(self.src, "/roms/snes/gamelist.xml.old", b"<gameList/>")
+        touch(self.src, "/roms/snes/leia.txt", b"txt")
         touch(self.src, "/roms/ports/Jogo.sh", b"#!/bin/sh")
         mkmanifest.build(self.src, self.out)
         self.m = json.load(open(os.path.join(self.out, "manifest.json")))
@@ -38,6 +43,10 @@ class T(unittest.TestCase):
     def test_deep_support_and_ports_left_out(self):
         self.assertNotIn("/roms/snes/sub/dados.dat", self.m["files"])
         self.assertNotIn("/roms/ports/Jogo.sh", self.m["files"])
+
+    def test_hidden_backups_and_loose_media_left_out(self):
+        for p in ("/roms/snes/.oculto.7z", "/roms/snes/gamelist.xml.old", "/roms/snes/leia.txt"):
+            self.assertNotIn(p, self.m["files"])
 
     def test_retroarch_cfg_is_eager(self):
         f = self.m["files"]["/home/ark/.config/retroarch/retroarch-core-options.cfg"]
