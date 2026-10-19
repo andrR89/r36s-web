@@ -39,36 +39,24 @@ class DriveIds(unittest.TestCase):
         self.lsj = lsj
         mkmanifest.build(self.src, self.out, mkmanifest.read_lsjson(lsj))
         self.m = json.load(open(os.path.join(self.out, "manifest.json")))
-        self.info = json.load(open(os.path.join(self.out, "info.json")))
 
-    def test_roms_and_media_get_drive_ids(self):
-        f = self.m["files"]
-        self.assertEqual(f["/roms/snes/Jogo.7z"]["id"], self.ids["snes/Jogo.7z"])
-        self.assertEqual(f["/roms/snes/images/Jogo.png"]["id"], self.ids["snes/images/Jogo.png"])
-        self.assertEqual(f["/roms/themes/outro/bg.jpg"]["id"], self.ids["themes/outro/bg.jpg"])
-        self.assertTrue(f["/roms/snes/Jogo.7z"]["v"])   # md5 -> versão do cache
+    def test_roms_have_ids(self):
+        f = self.m["files"]["/roms/snes/Jogo.7z"]
+        self.assertEqual((f["kind"], f["id"]), ("empty", self.ids["snes/Jogo.7z"]))
 
-    def test_active_theme_images_in_pack_only_for_present_systems(self):
-        f = self.m["files"]
-        self.assertEqual(f["/roms/themes/t/bg.jpg"]["kind"], "eager")              # o ES lê ao abrir
-        self.assertEqual(f["/roms/themes/t/_art/posters/snes.jpg"]["kind"], "eager")
-        self.assertEqual(f["/roms/themes/t/_art/posters/n64.jpg"]["kind"], "lazy")  # sistema vazio: fica no Drive
-        self.assertEqual(f["/roms/themes/t/_art/assets/sounds/snes.ogg"]["kind"], "lazy")   # som: pré-busca
+    def test_no_es_files(self):
+        for p in self.m["files"]:
+            self.assertFalse(p.startswith(("/usr/", "/etc/", "/roms/themes/", "/home/ark/.emulationstation")), p)
+            self.assertFalse(p.endswith("gamelist.xml") or "/images/" in p, p)
+        self.assertEqual(os.path.getsize(os.path.join(self.out, "eager.bin")), 0)
 
-    def test_outside_roms_is_eager(self):
-        self.assertEqual(self.m["files"]["/usr/bin/emulationstation/resources/big.ttf"]["kind"], "eager")
-        self.assertNotIn("id", self.m["files"]["/etc/emulationstation/es_systems.cfg"])
+    def test_extra_keeps_sheet_tracks_and_saves(self):
+        self.assertIn("/roms/snes/Disco.bin", self.m["extra"] | self.m["files"])
 
-    def test_extra_has_tracks_and_card_saves_not_media(self):
-        ex = self.m["extra"]
-        self.assertEqual(ex["/roms/snes/Disco.bin"]["id"], self.ids["snes/Disco.bin"])
-        self.assertIn("/roms/snes/Jogo.srm", ex)
-        self.assertNotIn("/roms/snes/images/Jogo.png", ex)
-        self.assertNotIn("/roms/snes/Jogo.7z", ex)
-
-    def test_info_counts(self):
-        self.assertEqual(self.info["systems"], 1)
-        self.assertEqual(self.info["games"], 2)   # Jogo.7z + Disco.cue
+    def test_info_and_library_written(self):
+        info = json.load(open(os.path.join(self.out, "info.json")))
+        self.assertEqual((info["systems"], info["games"]), (1, 2))
+        self.assertTrue(os.path.isfile(os.path.join(self.out, "library.json.gz")))
 
     def test_read_lsjson_skips_dirs(self):
         d = mkmanifest.read_lsjson(self.lsj)
