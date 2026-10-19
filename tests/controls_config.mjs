@@ -1,5 +1,5 @@
 // node tests/controls_config.mjs
-// Aba "Configurar": remapear uma tecla (Espaço vira A no ES), remapear um botão do controle (A no botão X/esquerda),
+// Aba "Configurar": remapear uma tecla (Espaço vira A no seletor), remapear um botão do controle (A no botão X/esquerda),
 // jogadores (1 controle = P1 no automático; "teclado é o P1" inverte), tamanho do toque, restaurar o padrão.
 import { chromium } from "/home/andre/Workspace/web-ports/tools/pw/node_modules/playwright-core/index.mjs";
 const b = await chromium.launch({ executablePath: "/usr/bin/chromium", args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
@@ -16,7 +16,8 @@ const errs = []; p.on("pageerror", e => errs.push(e.message));
 await p.goto("http://localhost:8770/r36s/");
 await p.waitForFunction(() => window.r36s && window.r36s.ready, null, { timeout: 120000 });
 await p.evaluate(() => localStorage.removeItem("r36s-controles-v1"));
-await p.evaluate(() => { window.__keys = []; document.getElementById("canvas").addEventListener("keydown", e => window.__keys.push(e.key)); });
+// o seletor recebe as teclas do layout do R36S como eventos sintéticos no document (web/controls.js): só esses contam
+await p.evaluate(() => { window.__keys = []; document.addEventListener("keydown", e => { if (!e.isTrusted) window.__keys.push(e.key); }); });
 const r = {};
 const badges = () => p.evaluate(() => document.getElementById("r36s-badges").innerText.replace(/\s+/g, " "));
 await p.waitForTimeout(800);
@@ -45,17 +46,17 @@ await p.waitForTimeout(200);
 r.p1kb = await badges();
 r.saved = await p.evaluate(() => JSON.parse(localStorage.getItem("r36s-controles-v1")));
 await p.evaluate(() => window.r36s.controls.close());
-// no ES: Espaço vira "l" (A); L físico não vale mais
-await p.evaluate(() => { window.__keys = []; document.getElementById("canvas").focus(); });
+// no seletor: Espaço vira "l" (A); L físico não vale mais
+await p.evaluate(() => { window.__keys = []; document.getElementById("app").focus(); });
 await p.keyboard.press("Space"); await p.keyboard.press("l");
 await p.waitForTimeout(200);
-r.esKeys = await p.evaluate(() => window.__keys.slice());
-// controle no ES: botão 2 agora é A -> tecla "l"
+r.selKeys = await p.evaluate(() => window.__keys.slice());
+// controle no seletor: botão 2 agora é A -> tecla "l"
 await p.evaluate(() => { window.__keys = []; window.__pad.buttons[2] = { pressed: true, touched: true, value: 1 }; });
 await p.waitForTimeout(150);
 await p.evaluate(() => { window.__pad.buttons[2] = { pressed: false, touched: false, value: 0 }; });
 await p.waitForTimeout(200);
-r.esPad = await p.evaluate(() => window.__keys.slice());
+r.selPad = await p.evaluate(() => window.__keys.slice());
 // restaurar
 await p.evaluate(() => window.r36s.controls.open());
 await p.click("#r36s-panel .tabs button:has-text('Configurar')");
@@ -64,7 +65,7 @@ r.afterReset = await p.evaluate(() => JSON.parse(localStorage.getItem("r36s-cont
 r.p1afterReset = await badges();
 const ok = /P1 · Controle Xbox/.test(r.p1auto) && /aperte/.test(r.waiting) && r.keyLabel === "Espaço" && r.padLabel === "X (esquerda)" &&
   /P1 · Teclado/.test(r.p1kb) && r.saved.keys.a === "Space" && r.saved.pad.a === "b:2" && r.saved.players === "teclado-p1" &&
-  r.esKeys.join() === "l" && r.esPad.includes("l") && Object.keys(r.afterReset).length === 0 && /P1 · Controle Xbox/.test(r.p1afterReset) && !errs.length;
+  r.selKeys.join() === "l" && r.selPad.includes("l") && Object.keys(r.afterReset).length === 0 && /P1 · Controle Xbox/.test(r.p1afterReset) && !errs.length;
 console.log(JSON.stringify({ ok, ...r, errs }));
 await b.close();
 process.exit(ok ? 0 : 1);

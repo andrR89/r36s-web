@@ -17,5 +17,8 @@ const lit = () => p.evaluate(() => { const c = document.getElementById("canvas")
 const seen = new Set(), t0 = Date.now();
 while (Date.now() - t0 < +secs * 1000) { const [l, h] = await lit(); if (l > 0.01) seen.add(h); await p.waitForTimeout(1000); }
 const [l] = await lit();
-console.log(JSON.stringify({ lit: l, quadrosDiferentes: seen.size, opcoes: logs.filter(x => /celular/.test(x)), erros: logs.filter(x => /PAGEERROR|RuntimeError|Aborted/.test(x)).slice(0, 3) }));
+const erros = logs.filter(x => /PAGEERROR|RuntimeError|Aborted/.test(x)).slice(0, 3);
+const ok = l > 0.01 && seen.size > 1 && !erros.length;   // desenhou e a imagem mudou
+console.log(JSON.stringify({ ok, lit: l, quadrosDiferentes: seen.size, opcoes: logs.filter(x => /celular/.test(x)), erros }));
 await b.close();
+process.exit(ok ? 0 : 1);

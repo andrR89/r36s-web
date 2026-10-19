@@ -8,8 +8,7 @@ await c.route(/\/r36s\/fs\/roms\/neogeo\/kof2000\.7z/, async r => { await new Pr
 const p = await c.newPage();
 await p.goto("http://localhost:8770/r36s/");
 await p.waitForFunction(() => window.r36s && window.r36s.ready, null, { timeout: 120000 });
-await p.evaluate(() => window.r36s.controls.close());
-const launch = () => p.evaluate(() => { window.__code = null; window.r36s.Module.webLaunch({ system: "neogeo", core: "fbneo", rom: "/roms/neogeo/kof2000.7z" }).then(c => { window.__code = c; }); });
+const launch = () => p.evaluate(() => { window.__code = null; window.r36s.launch({ system: "neogeo", core: "fbneo", rom: "/roms/neogeo/kof2000.7z" }).then(c => { window.__code = c; }); });
 const gf = () => p.frames().find(f => /retroarch\/play\.html/.test(f.url()));
 const r = {};
 // 1) menu ≡ -> Sair do jogo

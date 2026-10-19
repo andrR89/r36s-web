@@ -1,6 +1,6 @@
 // node tests/touch_game.mjs
-// Caminho completo do celular: ES do hub em tela de toque, abre o Super Mario 64 pela ponte do ES (o mesmo que escolher
-// na lista), chega na tela "Select File" e arrasta o dedo no analógico esquerdo da tela: a mãozinha tem que andar.
+// Caminho completo do celular: seletor do hub em tela de toque, abre o Super Mario 64 pelo launch do seletor (o mesmo que
+// o Jogar da ficha), chega na tela "Select File" e arrasta o dedo no analógico esquerdo da tela: a mãozinha tem que andar.
 import { chromium } from "/home/andre/Workspace/web-ports/tools/pw/node_modules/playwright-core/index.mjs";
 const b = await chromium.launch({ executablePath: "/usr/bin/chromium", args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required"] });
 const c = await b.newContext({ viewport: { width: 915, height: 412 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
@@ -24,8 +24,7 @@ if (PAD) await c.addInitScript(() => {
 const p = await c.newPage();
 await p.goto("http://localhost:8770/r36s/");
 await p.waitForFunction(() => window.r36s && window.r36s.ready, null, { timeout: 120000 });
-await p.evaluate(() => window.r36s.controls && window.r36s.controls.close());
-p.evaluate(g => window.r36s.Module.webLaunch({ system: g.system, core: g.core, rom: g.rom }), GAME).catch(() => {});
+p.evaluate(g => window.r36s.launch({ system: g.system, core: g.core, rom: g.rom }), GAME).catch(() => {});
 await p.waitForFunction(() => window.r36s.game && window.r36s.game.started, null, { timeout: 60000 });
 const gf = () => p.frames().find(f => /retroarch\/play\.html/.test(f.url()));
 const cdp = await c.newCDPSession(p);

@@ -1,7 +1,8 @@
 // node tests/drive_boot.mjs [url do site]
-// Mede o boot do ES no modo Drive com a biblioteca REAL (pasta R36S do andre): usa o token do remote "gdrive" do rclone
+// Mede o boot do seletor no modo Drive com a biblioteca REAL (pasta R36S do andre): usa o token do remote "gdrive" do rclone
 // (escopo drive, só leitura aqui — não abre jogo, não grava save). O token fica só no navegador do teste, nunca no log.
-// Saída: tempo até o ES pronto e até desenhar, quantos arquivos vieram sob demanda (lazy) e quanto tempo levaram.
+// Saída: tempo até o seletor pronto (readyMs dele e do teste) e até as primeiras capas do Drive aparecerem, quantos
+// pedidos ao Drive e quanto tempo levaram; depois desce as fileiras com S (como o controle) e mede capas e pedidos.
 import { chromium } from "/home/andre/Workspace/web-ports/tools/pw/node_modules/playwright-core/index.mjs";
 import { execFileSync, execSync } from "node:child_process";
 const rssBy = () => execSync(`ps -eo rss,cmd | grep -E 'chromium' | grep -v grep | sed -E 's/.*--type=([a-z-]+).*/\\1/;t;s/.*/browser/' | sort | uniq -c | head -0; ps -eo rss,args | grep chromium | grep -v grep | awk '{t="browser"; for(i=2;i<=NF;i++) if ($i ~ /^--type=/) t=substr($i,8); s[t]+=$1} END {for (k in s) printf "%s=%dMB ", k, s[k]/1024}'`).toString().trim();
@@ -12,11 +13,6 @@ const browser = await chromium.launch({ executablePath: "/usr/bin/chromium",
 const c = await browser.newContext({ viewport: { width: 915, height: 412 }, hasTouch: true, isMobile: true });
 await c.addInitScript(tok => {
   window.R36S_CONFIG = { auth: "mock", mockToken: tok };
-  const orig = HTMLCanvasElement.prototype.getContext;   // para ler os pixels do canvas do ES
-  HTMLCanvasElement.prototype.getContext = function (type, attrs) {
-    if (/webgl/.test(type)) attrs = Object.assign({}, attrs, { preserveDrawingBuffer: true });
-    return orig.call(this, type, attrs);
-  };
 }, token);
 const p = await c.newPage();
 p.on("crash", () => console.log("PÁGINA CAIU (crash) em", Date.now() - t0, "ms"));
@@ -37,24 +33,25 @@ await p.waitForSelector("button.play-btn:not([disabled])", { timeout: 60000 }).c
 const tLib = Date.now() - t0;
 await p.click("button.play-btn");
 let es; for (let i = 0; i < 600 && !(es = p.frames().find(f => /\/index\.html\?backend=/.test(f.url()))); i++) await p.waitForTimeout(100);
-await es.waitForFunction(() => window.r36s && window.r36s.ready, null, { timeout: 600000, polling: 500 });
-const tReady = Date.now() - t0;
-console.log("pronto", JSON.stringify({ tLib, tReady, driveReqs: reqs.length, kb: reqs.reduce((a, r) => a + r.kb, 0) }));
+await es.waitForFunction(() => window.r36s && (window.r36s.ready || window.r36s.error), null, { timeout: 600000, polling: 200 });
+const err = await es.evaluate(() => window.r36s.error || null);
+if (err) { console.log(JSON.stringify({ ok: false, erro: err, status: await es.evaluate(() => document.getElementById("status")?.textContent) })); await browser.close(); process.exit(1); }
+const tReady = Date.now() - t0, readyMs = await es.evaluate(() => window.r36s.readyMs);
+// capas vindas do Drive
+await es.waitForFunction(() => document.querySelectorAll(".cover img[src]").length > 0, null, { timeout: 120000, polling: 200 });
+const tCovers = Date.now() - t0;
+console.log("pronto", JSON.stringify({ tLib, tReady, readyMs, tCovers, driveReqs: reqs.length, kb: reqs.reduce((a, r) => a + r.kb, 0) }));
 for (let i = 0; i < 3; i++) {   // memória do renderer a cada segundo (CDP)
   const m = await cdp.send("Performance.getMetrics").catch(() => null);
   const g = k => m && Math.round((m.metrics.find(x => x.name === k) || {}).value / 1e6);
-  const st = await es.evaluate(() => { const r = window.r36s; const io = r.io; return io && { ...io.stats, fs: r.fsStats || null, heap: (window.Module && Module.HEAP8 ? Math.round(Module.HEAP8.length / 1e6) : null) }; }).catch(e => "erro " + e.message);
   console.log("mem", Date.now() - t0, "ms: JS", g("JSHeapUsedSize"), "MB", rssBy());
   await p.waitForTimeout(1000);
 }
-const io = await es.evaluate(() => window.r36s.io || window.r36s.stats || null).catch(() => null);
+const io = await es.evaluate(() => window.r36s.io && window.r36s.io.stats || null).catch(() => null);
 await p.screenshot({ path: "/home/andre/Workspace/web-ports/r36s/tests/out/drive-boot.png" });
-// navegar: fecha o painel, entra no sistema (A) e desce a lista; amostra o canvas do ES a cada 100 ms
-await es.evaluate(() => window.r36s.controls && window.r36s.controls.close());
+// navegar: desce as fileiras do Início com S; conta as capas com imagem a cada passo
 const nBoot = reqs.length;
-const dark = () => es.evaluate(() => { const c = document.getElementById("canvas"); const g = document.createElement("canvas");
-  g.width = 160; g.height = 120; const x = g.getContext("2d"); x.drawImage(c, 0, 0, 160, 120); const d = x.getImageData(0, 0, 160, 120).data;
-  let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 30) n++; return +(n / (d.length / 4)).toFixed(2); }).catch(() => -1);
+const imgs = () => es.evaluate(() => document.querySelectorAll(".cover img[src]").length).catch(() => -1);
 const press = async k => { await p.keyboard.down(k); await p.waitForTimeout(120); await p.keyboard.up(k); };
 await cdp.send("Debugger.enable");
 if (process.env.PAUSE) {
@@ -71,22 +68,23 @@ if (process.env.PAUSE) {
     setTimeout(() => { console.log("não pausou"); process.exit(0); }, 15000);
   }, 1000);
 }
-await press("l");
-await p.waitForTimeout(4000);
 const samples = [], stepMs = [];
 for (let i = 0; i < 12; i++) {
   const t = Date.now(); await press("s");
-  // quanto tempo o ES fica "parado" (sem responder a evaluate leve) depois de descer
+  // quanto tempo o seletor fica "parado" (sem responder a evaluate leve) depois de descer
   await es.evaluate(() => new Promise(r => requestAnimationFrame(() => r()))).catch(() => {});
   stepMs.push(Date.now() - t);
-  for (let k = 0; k < 6; k++) { if (!process.env.NOSAMPLE) samples.push(await dark()); await p.waitForTimeout(100); }
+  await p.waitForTimeout(600);
+  samples.push(await imgs());
   console.log("nav", i, Date.now() - t0, "ms", rssBy());
 }
 await p.screenshot({ path: "/home/andre/Workspace/web-ports/r36s/tests/out/drive-lista.png" });
 const nav = reqs.slice(nBoot);
 const big = reqs.filter(r => r.kb > 500), small = reqs.filter(r => r.kb <= 500);
 const sum = a => a.reduce((s, r) => s + r.ms, 0);
-console.log(JSON.stringify({ tLib, tReady, drive: reqs.length, grandes: big.map(r => `${r.kb} KB em ${r.ms} ms`),
+const ok = tCovers > 0 && samples.at(-1) > 0;
+console.log(JSON.stringify({ ok, tLib, tReady, readyMs, tCovers, drive: reqs.length, grandes: big.map(r => `${r.kb} KB em ${r.ms} ms`),
   pequenos: { n: small.length, msTotal: sum(small), msMedia: Math.round(sum(small) / (small.length || 1)) }, io,
-  nav: { reqs: nav.length, ms: nav.map(r => r.ms), kb: nav.map(r => r.kb) }, stepMs, escuro: samples.filter(v => v < 0.05).length + "/" + samples.length, samples }, null, 1));
+  nav: { reqs: nav.length, ms: nav.map(r => r.ms), kb: nav.map(r => r.kb) }, stepMs, capasComImagem: samples }, null, 1));
 await browser.close();
+process.exit(ok ? 0 : 1);

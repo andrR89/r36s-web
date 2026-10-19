@@ -1,17 +1,18 @@
 // node tests/e2e_site.mjs [url do r36s no hub] [saida] — site da Etapa 4 contra um mock local do Google Drive.
 //  1. home (1440 e 390 px), sem erro de console     2. login     3. os 4 estados da biblioteca (+ sem índice)
-//  4. ES boota lendo do mock do Drive, painel de comandos, jogo (ROM do Drive), save PUT no Drive e GET na volta
-//  5. modo demonstração + 2 jogadores com controles simulados (navigator.getGamepads falso)   6. joystick de toque
+//  4. seletor lê a biblioteca e as capas do mock do Drive, jogo (ROM do Drive) pela ficha, save PUT no Drive e GET na volta
+//  5. modo demonstração + 2 jogadores com controles simulados (navigator.getGamepads falso)   6. joystick de toque no jogo
 //  7. PSP (núcleo com threads) no modo Drive: aba isolada (retroarch/isolated.html, crossOriginIsolated) pelo
-//     BroadcastChannel, popup bloqueado -> botão, jogo desenha, save em árvore vai e volta do Drive, saída volta ao ES.
+//     BroadcastChannel, popup bloqueado -> botão, jogo desenha, save em árvore vai e volta do Drive, saída volta ao seletor.
 //     Precisa do cartão montado (ROM de PSP de lá numa biblioteca de teste); sem ele o passo é pulado.
 // E2E_ONLY=home,biblioteca,drive,demo,toque,psp roda só esses passos.
 // O login real do Google não dá para automatizar: o site roda com R36S_CONFIG {auth: "mock", api: <mock>}.
 // Teste com controles físicos e no celular de verdade fica com o andre (docs/deploy.md).
 import { chromium } from "/home/andre/Workspace/web-ports/tools/pw/node_modules/playwright-core/index.mjs";
-import { mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync, rmSync, cpSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync, rmSync } from "node:fs";
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:net";
+import { gunzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -71,16 +72,17 @@ const lit = frame => frame.evaluate(() => {
   for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 30) n++;
   return +(n / (d.length / 4)).toFixed(3);
 });
-const esFrame = p => p.frames().find(f => /\/index\.html\?backend=/.test(f.url()));
+const appFrame = p => p.frames().find(f => /\/index\.html\?backend=/.test(f.url()));
 const gameFrame = p => p.frames().find(f => /retroarch\/play\.html/.test(f.url()));
-async function waitES(p) {
+// frame do seletor (index.html?backend=…) dentro do site, já pronto
+async function waitApp(p) {
   await p.waitForFunction(() => document.querySelector("#jogar iframe"), null, { timeout: 20000 });
-  for (let i = 0; i < 100 && !esFrame(p); i++) await p.waitForTimeout(100);
-  const f = esFrame(p);
+  for (let i = 0; i < 100 && !appFrame(p); i++) await p.waitForTimeout(100);
+  const f = appFrame(p);
   await f.waitForFunction(() => window.r36s && window.r36s.ready, null, { timeout: 120000 });
-  for (let i = 0; i < 60 && (await lit(f)) < 0.05; i++) await p.waitForTimeout(500);
   return f;
 }
+const focusedPlay = app => app.evaluate(() => !!document.activeElement && document.activeElement.matches("#sheet .play"));
 const hold = async (p, k, ms = 150) => { await p.keyboard.down(k); await p.waitForTimeout(ms); await p.keyboard.up(k); };
 const selectStart = async p => { await p.keyboard.down("Backspace"); await p.waitForTimeout(300); await p.keyboard.down("Enter"); await p.waitForTimeout(400); await p.keyboard.up("Enter"); await p.keyboard.up("Backspace"); };
 
@@ -136,7 +138,7 @@ try {
     await c.close();
   }
 
-  // ---------- 4. ES do Drive (mock), painel, jogo, saves
+  // ---------- 4. seletor do Drive (mock), jogo, saves
   if (run("drive")) {
     await fetch(api + "/_mock/reset", { method: "POST" });
     const { c, p } = await ctx({}, "tok-shared");
@@ -144,29 +146,24 @@ try {
     await p.click("#google-btn");
     await p.waitForFunction(() => window.r36sApp.state === "shared");
     await p.click(".play-btn");
-    const es = await waitES(p);
-    const panel = await es.evaluate(() => !!(window.r36s.controls && window.r36s.controls.panel));
-    await p.waitForTimeout(1500);
-    await p.screenshot({ path: `${out}/comandos-teclado.png` });
-    await es.evaluate(() => document.querySelector("#r36s-panel .tabs button:nth-child(2)").click());
-    await p.waitForTimeout(200);
-    await p.screenshot({ path: `${out}/comandos-controle.png` });
-    await p.keyboard.press("Enter");   // "Jogar (Enter)" fecha
-    await p.waitForTimeout(400);
-    const closed = await es.evaluate(() => !window.r36s.controls.panel);
-    const esLit = await lit(es);
-    await p.screenshot({ path: `${out}/es-drive.png` });
+    const app = await waitApp(p);
+    const panel = await app.evaluate(() => !!(window.r36s.controls && window.r36s.controls.panel));
+    const covers = await app.evaluate(() => document.querySelectorAll(".cover").length);
+    // a biblioteca do demo pode vir sem capas/prints (gamelist sem <image>): aí as capas são o nome (placeholder)
+    const art = JSON.parse(gunzipSync(readFileSync(join(work, "index/library.json.gz")))).games.filter(g => g.box || g.shot).length;
+    if (art) await app.waitForFunction(() => document.querySelector(".cover img[src]"), null, { timeout: 30000 }).catch(() => {});
+    const imgs = await app.evaluate(() => document.querySelectorAll(".cover img[src]").length);
+    await p.screenshot({ path: `${out}/seletor-drive.png` });
     const log1 = await mockGet("/_mock/log");
     const media = log1.filter(l => l.path.startsWith("/drive/v3/files/") && l.user === "tok-shared");
-    step("es-drive", { panel, closed, esLit, mediaRequests: media.length, io: await es.evaluate(() => window.r36s.io.stats) });
-    check(panel && closed, "painel abre na primeira entrada e fecha com Enter");
-    check(esLit > 0.05, "ES desenhou a partir do Drive");
-    // gbc (2º sistema do carrossel) -> µCity
-    await hold(p, "d"); await p.waitForTimeout(1200);
-    await hold(p, "l"); await p.waitForTimeout(1500);
-    await hold(p, "l");
-    await es.waitForFunction(() => window.r36s.game && window.r36s.game.started, null, { timeout: 60000 }).catch(() => {});
-    const game = await es.evaluate(() => window.r36s.game && { rom: window.r36s.game.rom, started: window.r36s.game.started });
+    step("seletor-drive", { panel, covers, art, imgs, mediaRequests: media.length, io: await app.evaluate(() => window.r36s.io.stats) });
+    check(!panel, "painel de comandos não abre sozinho");
+    check(covers > 0 && (imgs > 0 || !art), "seletor mostrou capas vindas do Drive");
+    // gbc -> µCity: capa -> ficha -> Jogar
+    await app.click('[data-sys="gbc"] .cover');
+    await app.click("#sheet .play");
+    await app.waitForFunction(() => window.r36s.game && window.r36s.game.started, null, { timeout: 60000 }).catch(() => {});
+    const game = await app.evaluate(() => window.r36s.game && { rom: window.r36s.game.rom, started: window.r36s.game.started });
     await p.waitForTimeout(8000);
     const gf = gameFrame(p);
     const gameLit = gf ? await lit(gf) : 0;
@@ -176,23 +173,25 @@ try {
     check(game && /uCity/.test(game.rom) && game.started, "jogo do Drive iniciou");
     check(gameLit > 0.02, "jogo desenhou");
     await selectStart(p);
-    await es.waitForFunction(() => !window.r36s.game, null, { timeout: 20000 }).catch(() => {});
-    const last = await es.evaluate(() => window.r36s.lastGame);
+    await app.waitForFunction(() => !window.r36s.game, null, { timeout: 20000 }).catch(() => {});
+    const last = await app.evaluate(() => window.r36s.lastGame);
+    const back = await focusedPlay(app);
     const saves = await mockGet("/_mock/saves");
     const srm = saves.find(s => s.user === "tok-shared" && s.name === "uCity.srm");
-    step("save-put", { code: last && last.code, why: last && last.why, srm });
+    step("save-put", { code: last && last.code, why: last && last.why, back, srm });
+    check(back, "volta do jogo: foco no Jogar da ficha");
     check(srm && srm.size > 0 && srm.parent === "gbc", "save subiu para o Drive (R36S Web — saves/gbc/uCity.srm)");
     // de novo: o save tem que vir do Drive (GET)
     const n0 = logs.length;
     await p.waitForTimeout(1500);
-    await hold(p, "l");
-    await es.waitForFunction(() => window.r36s.game && window.r36s.game.started, null, { timeout: 60000 }).catch(() => {});
+    await app.click("#sheet .play");   // a ficha continua aberta
+    await app.waitForFunction(() => window.r36s.game && window.r36s.game.started, null, { timeout: 60000 }).catch(() => {});
     await p.waitForTimeout(2000);
     const got = logs.slice(n0).find(l => /\[play\] save: \d+ bytes/.test(l));
     step("save-get", { got });
     check(!!got, "save voltou do Drive na segunda abertura");
     await selectStart(p);
-    await es.waitForFunction(() => !window.r36s.game, null, { timeout: 20000 }).catch(() => {});
+    await app.waitForFunction(() => !window.r36s.game, null, { timeout: 20000 }).catch(() => {});
     const saves2 = await mockGet("/_mock/saves");
     step("save-revisao", saves2.find(s => s.name === "uCity.srm"));
     await c.close();
@@ -210,14 +209,14 @@ try {
         value: function () { const t = window.top.__pads || []; return [0, 1, 2, 3].map(i => t[i] || null); } });
     });
     await p.goto(site + "#/demo");
-    const es = await waitES(p);
-    await es.evaluate(() => window.r36s.controls.close());
-    await es.evaluate(() => { window.__keys = []; document.getElementById("canvas").addEventListener("keydown", e => { if (!e.isTrusted) window.__keys.push(e.key); }); });
+    const es = await waitApp(p);
+    // fora do jogo o controle vira teclas sintéticas no document (web/controls.js); foco no #app: o A não abre nada
+    await es.evaluate(() => { window.__keys = []; document.addEventListener("keydown", e => { if (!e.isTrusted) window.__keys.push(e.key); }); document.getElementById("app").focus(); });
     await p.evaluate(() => { window.__pads[0] = window.__mkPad(0, "Xbox 360 Controller (XInput STANDARD GAMEPAD)"); });
     await p.waitForTimeout(600);
     const b1 = await es.evaluate(() => document.getElementById("r36s-badges").innerText);
     await p.screenshot({ path: `${out}/2p-um-controle.png` });
-    // botão da direita (A do R36S) no controle -> tecla L no ES
+    // botão da direita (A do R36S) no controle -> tecla L no seletor
     await p.evaluate(() => { window.__pads[0].buttons[1] = { pressed: true, value: 1 }; });
     await p.waitForTimeout(200);
     await p.evaluate(() => { window.__pads[0].buttons[1] = { pressed: false, value: 0 }; });
@@ -241,12 +240,13 @@ try {
     await es.evaluate(() => window.r36s.controls.close());
     step("2p", { b1, keysFromPad: keys, b2, b3 });
     check(/P1 · Controle Xbox/.test(b1) && /P2 · Teclado/.test(b1), "1 controle: controle P1, teclado P2 (padrão automático)");
-    check(keys.includes("l"), "controle -> tecla L (A) no ES");
-    check(!keys.includes("Enter") && !keys.includes("Backspace"), "Start+Select no ES não vira tecla (troca)");
+    check(keys.includes("l"), "controle -> tecla L (A) no seletor");
+    check(!keys.includes("Enter") && !keys.includes("Backspace"), "Start+Select no seletor não vira tecla (troca)");
     check(/P1 · Teclado/.test(b2) && /P2 · Controle Xbox/.test(b2), "Start+Select troca P1/P2");
     check(/P1 · Controle (PlayStation|Xbox)/.test(b3) && /P2 · Controle (PlayStation|Xbox)/.test(b3), "2 controles: P1/P2");
     // jogo do demo: dentro do iframe o getGamepads já vem na ordem P1, P2
-    await hold(p, "l"); await p.waitForTimeout(1200); await hold(p, "s"); await p.waitForTimeout(300); await hold(p, "l");
+    await es.click(".cover");
+    await es.click("#sheet .play");
     await es.waitForFunction(() => window.r36s.game && window.r36s.game.started, null, { timeout: 60000 }).catch(() => {});
     await p.waitForTimeout(5000);
     const gf = gameFrame(p);
@@ -264,14 +264,28 @@ try {
   // ---------- 6. joystick de toque (paisagem e retrato), multitoque
   if (run("toque")) for (const [w, hgt, name] of [[844, 390, "toque-paisagem"], [390, 844, "toque-retrato"]]) {
     const { c, p } = await ctx({ viewport: { width: w, height: hgt }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
+    // modo teclas (sem o controle virtual): o joystick manda teclas para o canvas do jogo
+    await c.addInitScript(() => { if (window === window.top) localStorage.setItem("r36s-controles-v1", JSON.stringify({ analog: { touchAnalog: false } })); });
     await p.goto(site + "#/demo");
-    const es = await waitES(p);
+    const es = await waitApp(p);
+    const hidden = await es.evaluate(() => getComputedStyle(document.getElementById("r36s-touch")).display === "none");
+    await es.evaluate(() => window.r36s.controls.open());   // painel pelo menu ≡: no toque abre na aba Toque
+    await p.waitForTimeout(300);
     const tab = await es.evaluate(() => document.querySelector("#r36s-panel .tabs .on")?.textContent);
     await p.screenshot({ path: `${out}/comandos-${name}.png` });
     await es.evaluate(() => window.r36s.controls.close());
-    await es.evaluate(() => { window.__held = new Set(); window.__both = false; const c = document.getElementById("canvas");
-      c.addEventListener("keydown", e => { if (!e.isTrusted) { window.__held.add(e.key); if (window.__held.has("d") && window.__held.has("l")) window.__both = true; } });
-      c.addEventListener("keyup", e => { if (!e.isTrusted) window.__held.delete(e.key); }); });
+    // jogo falso no lugar do #game (mesmo id e CSS): um canvas que anota as teclas que o joystick de toque manda
+    await es.evaluate(() => new Promise(res => {
+      window.__held = new Set(); window.__both = false;
+      const f = document.createElement("iframe");
+      f.id = "game";
+      f.srcdoc = '<canvas id="canvas"></canvas><script>const c = document.getElementById("canvas"), t = parent;' +
+        'c.addEventListener("keydown", e => { t.__held.add(e.key); if (t.__held.has("d") && t.__held.has("l")) t.__both = true; });' +
+        'c.addEventListener("keyup", e => t.__held.delete(e.key));<\/script>';
+      f.onload = () => { window.r36s.game = { system: "gbc", rom: "/roms/gbc/Teste.gbc", iframe: f, started: true }; res(); };
+      document.body.append(f);
+    }));
+    await p.waitForTimeout(500);
     // dois dedos: direcional para a direita + A
     const box = async sel => { const r = await es.evaluate(s => { const b = document.querySelector(s).getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; }, sel); return r; };
     const [dx, dy, dw, dh] = await box("#r36s-touch .dpad");
@@ -285,7 +299,8 @@ try {
     await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     await p.waitForTimeout(200);
     const r = await es.evaluate(() => ({ both: window.__both, held: [...window.__held], portrait: document.body.classList.contains("r36s-portrait"), touch: document.body.classList.contains("r36s-touch") }));
-    step(name, { tab, ...r });
+    step(name, { hidden, tab, ...r });
+    check(hidden, `${name}: joystick de toque escondido fora do jogo`);
     check(r.touch && tab === "Toque", `${name}: overlay e aba Toque`);
     check(r.both && !r.held.length, `${name}: multitoque (direcional + A juntos) e soltar`);
     check(r.portrait === (hgt > w), `${name}: orientação`);
@@ -318,9 +333,8 @@ async function pspIsolated() {
   mkdirSync(join(fsr, "roms/psp"), { recursive: true });
   mkdirSync(join(fsr, "etc/emulationstation"), { recursive: true });
   for (const d of ["home", "usr"]) symlinkSync(join(demo, d), join(fsr, d));
-  for (const d of ["gbc", "nes", "themes"]) symlinkSync(join(demo, "roms", d), join(fsr, "roms", d));
+  for (const d of ["gbc", "nes"]) symlinkSync(join(demo, "roms", d), join(fsr, "roms", d));
   symlinkSync(`${CARD}/${GAME}`, join(fsr, "roms/psp", GAME));
-  cpSync(join(demo, "etc/emulationstation/es_input.cfg"), join(fsr, "etc/emulationstation/es_input.cfg"));
   writeFileSync(join(fsr, "etc/emulationstation/es_systems.cfg"), readFileSync(join(demo, "etc/emulationstation/es_systems.cfg"), "utf8")
     .replace("</systemList>", `\t<system>\n\t\t<name>psp</name>\n\t\t<fullname>PSP</fullname>\n\t\t<path>/roms/psp/</path>\n\t\t<extension>.iso .ISO .cso .CSO</extension>\n` +
       `\t\t<command>/usr/local/bin/ppsspp.sh %ROM%</command>\n\t\t<platform>psp</platform>\n\t\t<theme>gbc</theme>\n\t</system>\n</systemList>`));
@@ -342,14 +356,12 @@ async function pspIsolated() {
   await p.click("#google-btn");
   await p.waitForFunction(() => window.r36sApp.state === "shared");
   await p.click(".play-btn");
-  const es = await waitES(p);
-  await es.evaluate(() => window.r36s.controls.close());
-  check(await es.evaluate(() => !self.crossOriginIsolated), "psp: página do ES no site não é crossOriginIsolated (premissa)");
-  // nes -> gbc -> psp; entra na lista e lança. O 1º window.open "falha" (popup bloqueado): aparece o botão
+  const es = await waitApp(p);
+  check(await es.evaluate(() => !self.crossOriginIsolated), "psp: página do seletor no site não é crossOriginIsolated (premissa)");
+  // capa do PSP -> ficha -> Jogar. O 1º window.open "falha" (popup bloqueado): aparece o botão
   await es.evaluate(() => { const o = window.open; window.open = function () { window.open = o; return null; }; });
-  await hold(p, "d"); await p.waitForTimeout(1000); await hold(p, "d"); await p.waitForTimeout(1200);
-  await hold(p, "l"); await p.waitForTimeout(1500);
-  await hold(p, "l");
+  await es.click('[data-sys="psp"] .cover');
+  await es.click("#sheet .play");
   await es.waitForFunction(() => document.querySelector("#isolated button"), null, { timeout: 30000 }).catch(() => {});
   const blocked = await es.evaluate(() => ({ text: document.getElementById("isolated")?.innerText || "", game: window.r36s.game && { isolated: window.r36s.game.isolated, opened: window.r36s.game.opened } }));
   await p.screenshot({ path: `${out}/psp-bloqueado.png` });
@@ -370,7 +382,7 @@ async function pspIsolated() {
   let glit = 0;
   for (let i = 0; i < 120 && glit < 0.02; i++) { await g.waitForTimeout(1000); glit = await lit(g).catch(() => 0); }
   await g.screenshot({ path: `${out}/psp-aba.png` });
-  await p.screenshot({ path: `${out}/psp-es-aviso.png` });
+  await p.screenshot({ path: `${out}/psp-seletor-aviso.png` });
   const st = await g.evaluate(() => ({ started: !!(window.r36sPlay && window.r36sPlay.started), core: window.r36sPlay && window.r36sPlay.core, lazy: window.r36sPlay && window.r36sPlay.lazy,
     io: window.r36sIsolated.io && window.r36sIsolated.io.stats, inStorage: JSON.stringify({ ...localStorage, ...sessionStorage }).includes("tok-") }));
   const seedLog = glogs.find(l => /save em árvore: \d+ arquivos/.test(l));
@@ -381,7 +393,7 @@ async function pspIsolated() {
   check(iso.coi === true && iso.sab === "function", "psp: aba isolada com crossOriginIsolated");
   check(iso.opener && !/tok-/.test(iso.url) && !st.inStorage, "psp: sem opener; token fora da URL e do storage");
   check(st.started && st.core === "ppsspp", "psp: ppsspp iniciou na aba isolada");
-  check(/PSP abre numa aba própria/.test(notice), "psp: aviso na aba do ES enquanto joga");
+  check(/PSP abre numa aba própria/.test(notice), "psp: aviso na aba do seletor enquanto joga");
   check(glit > 0.02, "psp: jogo desenhou");
   check(/save em árvore: 1 arquivos/.test(seedLog || ""), "psp: save semente veio do Drive");
   // "o jogo grava" no memory stick: um arquivo novo na árvore -> o play.js sobe o blob (PATCH no Drive) em até 2 s
@@ -391,7 +403,7 @@ async function pspIsolated() {
   const up = await savesOf();
   step("psp-save-put", up);
   check(up && up.revisions >= 1 && up.size > blob.length && up.parent === "psp", "psp: save do memory stick subiu para o Drive");
-  // saída: Select+Start na aba isolada -> exit pelo canal, a aba fecha, o ES volta
+  // saída: Select+Start na aba isolada -> exit pelo canal, a aba fecha, o seletor volta (foco no Jogar)
   const closed = new Promise(r => g.once("close", r));
   await g.bringToFront();
   await selectStart(g);
@@ -400,15 +412,15 @@ async function pspIsolated() {
   const last = await es.evaluate(() => window.r36s.lastGame && { code: window.r36s.lastGame.code, why: window.r36s.lastGame.why, isolated: window.r36s.lastGame.isolated, notice: !!document.getElementById("isolated") });
   await p.bringToFront();
   await p.waitForTimeout(1500);
-  const esBack = await lit(es);
-  await p.screenshot({ path: `${out}/psp-volta-es.png` });
-  step("psp-saida", { gone, last, esBack });
+  const back = await focusedPlay(es);
+  await p.screenshot({ path: `${out}/psp-volta-seletor.png` });
+  step("psp-saida", { gone, last, back });
   check(gone, "psp: aba isolada fechou sozinha");
-  check(last && last.code === 0 && last.isolated && !last.notice, "psp: ES voltou (código 0, aviso removido)");
-  check(esBack > 0.05, "psp: ES desenha de novo");
+  check(last && last.code === 0 && last.isolated && !last.notice, "psp: seletor voltou (código 0, aviso removido)");
+  check(back, "psp: foco de volta no Jogar da ficha");
   // de novo: o save com os 2 arquivos vem do Drive
   const popup2 = c.waitForEvent("page", { timeout: 20000 });
-  await hold(p, "l");
+  await es.click("#sheet .play");   // a ficha continua aberta
   const g2 = await popup2;
   await g2.waitForURL(/isolated\.html/, { timeout: 20000, waitUntil: "load" }).catch(() => {});
   const g2logs = [];
@@ -417,13 +429,13 @@ async function pspIsolated() {
   const got = g2logs.find(l => /save em árvore: \d+ arquivos/.test(l));
   step("psp-save-get", { got });
   check(/save em árvore: 2 arquivos/.test(got || ""), "psp: save voltou do Drive com o arquivo novo");
-  // Voltar pela aba do ES: pede para a aba isolada sair e fechar
+  // Voltar pela aba do seletor: pede para a aba isolada sair e fechar
   const closed2 = new Promise(r => g2.once("close", r));
   await p.bringToFront();
   await es.click("#isolated button:last-child");
   const gone2 = await Promise.race([closed2.then(() => true), new Promise(r => setTimeout(() => r(false), 20000))]);
   const last2 = await es.evaluate(() => window.r36s.lastGame && { code: window.r36s.lastGame.code, why: window.r36s.lastGame.why });
   step("psp-voltar", { gone2, last2, game: await es.evaluate(() => !!window.r36s.game) });
-  check(gone2 && last2 && /voltou/.test(last2.why || ""), "psp: Voltar na aba do ES fecha a aba isolada");
+  check(gone2 && last2 && last2.why === "voltou pela aba do seletor", "psp: Voltar na aba do seletor fecha a aba isolada");
   await c.close();
 }

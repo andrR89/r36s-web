@@ -9,8 +9,9 @@ const p = await c.newPage();
 await c.addInitScript(() => { if (window === window.top) localStorage.setItem("r36s-controles-v1", JSON.stringify({ analog: { touchAnalog: false } })); });
 await p.goto("http://localhost:8770/r36s/");
 await p.waitForFunction(() => window.r36s && window.r36s.ready, null, { timeout: 120000 });
-await p.evaluate(() => window.r36s.controls && window.r36s.controls.close());
 const visible = () => p.evaluate(() => [...document.querySelectorAll("#r36s-touch .stick")].map(e => getComputedStyle(e).display !== "none"));
+// fora do jogo o joystick de toque inteiro some (no seletor o toque é na própria tela)
+const hidden = await p.evaluate(() => getComputedStyle(document.getElementById("r36s-touch")).display === "none");
 const before = await visible();
 // jogo falso: iframe com um canvas que anota as teclas
 await p.evaluate(() => new Promise(res => {
@@ -38,8 +39,8 @@ await t("touchEnd", []);
 await p.waitForTimeout(150);
 const keys = await p.evaluate(() => document.querySelector("iframe").contentWindow.keys);
 const knobAfter = await p.evaluate(() => document.querySelector("#r36s-touch .stick.ls b").style.transform);
-const ok = !before.some(Boolean) && during.every(Boolean) && keys.includes("dArrowRight") && keys.includes("dt") &&
+const ok = hidden && !before.some(Boolean) && during.every(Boolean) && keys.includes("dArrowRight") && keys.includes("dt") &&
   keys.includes("uArrowRight") && keys.includes("ut") && /translate\(\d+px, 0px\)/.test(knob) && /translate\(0px, 0px\)/.test(knobAfter);
-console.log(JSON.stringify({ ok, before, during, keys, knob, knobAfter }));
+console.log(JSON.stringify({ ok, hidden, before, during, keys, knob, knobAfter }));
 await b.close();
 process.exit(ok ? 0 : 1);
