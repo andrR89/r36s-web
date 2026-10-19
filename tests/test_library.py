@@ -1,4 +1,4 @@
-# tests/test_library.py — library.json do seletor (data/mkmanifest.py build_library)
+# tests/test_library.py — library.json do seletor (data/mkmanifest.py write_library)
 # python3 -m unittest tests.test_library
 import gzip, json, os, subprocess, sys, tempfile, unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "data"))
@@ -9,7 +9,8 @@ SYSTEMS = """<systemList>
 <system><name>snes</name><fullname>Super Nintendo</fullname><path>/roms/snes/</path><extension>.sfc .7z</extension></system>
 <system><name>psx</name><fullname>PlayStation</fullname><path>/roms/psx</path><extension>.cue .bin .m3u</extension></system>
 <system><name>vazio</name><fullname>Sem jogos</fullname><path>/roms/vazio/</path><extension>.zip</extension></system>
-<system><name>pico8</name><fullname>PICO-8</fullname><path>/roms/pico-8/carts</path><extension>.png</extension></system>
+<system><name>pico8</name><fullname>PICO-8</fullname><path>/roms/pico-8/carts</path><extension>.png .p8</extension></system>
+<system><name>cmds</name><fullname>Comandos</fullname><path>/opt/cmds</path><extension>.sh</extension></system>
 <system><name>ports</name><fullname>Ports</fullname><path>/roms/ports/</path><extension>.sh</extension></system>
 </systemList>"""
 GAMELIST = """<gameList>
@@ -40,6 +41,7 @@ class Library(unittest.TestCase):
         touch(src, "/roms/psx/Disco (USA).cue", b'FILE "Disco (USA).bin" BINARY\n')
         touch(src, "/roms/psx/Disco (USA).bin", b"BIN")
         touch(src, "/roms/pico-8/carts/jogo.p8.png", b"P8")
+        touch(src, "/opt/cmds/run.sh", b"#!/bin/sh")
         touch(src, "/roms/ports/Jogo.sh", b"#!/bin/sh")
         cores = os.path.join(out, "cores.json")
         json.dump(CORES, open(cores, "w"))
@@ -81,6 +83,24 @@ class Library(unittest.TestCase):
         self.assertEqual((pico["id"], pico["playable"]), ("pico-8", True))   # path é /roms/pico-8/carts
         g = next(g for g in lib["games"] if g["rom"].endswith("jogo.p8.png"))
         self.assertEqual(g["s"], "pico-8")
+        self.assertEqual(g["name"], "jogo")   # sem .p8.png (extensões do sistema)
+
+    def test_system_outside_roms_ignored(self):
+        lib, _ = self.make()
+        self.assertEqual([s["id"] for s in lib["systems"] if s["id"] in ("cmds", "opt")], [])
+        self.assertFalse([g for g in lib["games"] if "/opt/" in g["rom"]])
+
+    def test_deterministic_gz(self):
+        a = b = None
+        for i in (0, 1):
+            src, out = tempfile.mkdtemp(), tempfile.mkdtemp()
+            touch(src, "/etc/emulationstation/es_systems.cfg", SYSTEMS.encode())
+            touch(src, "/roms/snes/a.7z", b"Z")
+            mkmanifest.build(src, out)
+            d = open(os.path.join(out, "library.json.gz"), "rb").read()
+            if i == 0: a = d
+            else: b = d
+        self.assertEqual(a, b)
 
     def test_cue_hides_cited_bin(self):
         lib, _ = self.make()

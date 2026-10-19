@@ -11,7 +11,7 @@ Modo Drive (--drive-ids <lsjson>): a listagem `rclone lsjson -R --hash gdrive:R3
 cartão de ROMs, ou seja, /roms) dá o ID de cada arquivo; cada entrada de /roms ganha "id" (e "v", versão para o cache:
 md5 ou data). Fora de /roms tudo vira eager (não está no Drive: vai no eager.bin). "extra" lista arquivos do Drive nas
 pastas de sistema que o ES não lista mas o player pode pedir (faixas .bin de .cue, saves .srm/.dsv do cartão...).
-Grava também info.json (sistemas, jogos) para a tela da biblioteca. Os três vão para R36S/.web/ no Drive.
+Grava também info.json (sistemas, jogos) para a tela da biblioteca. Os quatro (manifest.json, eager.bin, info.json, library.json.gz) vão para R36S/.web/ no Drive.
 """
 import argparse, datetime, gzip, json, os, re, sys, urllib.parse
 import xml.etree.ElementTree as ET
@@ -174,7 +174,7 @@ def read_systems_full(src):
         for block in re.findall(r"<system>.*?</system>", txt, re.S):
             tag = lambda t: (re.search(f"<{t}>(.*?)</{t}>", block, re.S) or [None, ""])[1].strip()
             d = "/" + tag("path").strip("/")
-            if d == "/" or d in seen:
+            if not d.startswith("/roms/") or d in seen:   # kodi, /opt/cmds etc. não são jogos do cartão
                 continue
             seen.add(d)
             out.append({"name": tag("name"), "fullname": tag("fullname") or tag("name"), "dir": d, "exts": tag("extension").split()})
@@ -185,7 +185,8 @@ def read_gamelist(real, vdir):
     """{vpath da ROM: metadados} de um gamelist.xml; caminhos de mídia como vpath."""
     try:
         root = ET.parse(real).getroot()
-    except (ET.ParseError, OSError):
+    except (ET.ParseError, OSError) as e:
+        print(f"aviso: gamelist ilegível ({real}): {e}", file=sys.stderr)
         return {}
     def vp(t):
         t = (t or "").strip()
@@ -210,8 +211,11 @@ SKIP_DIRS = ("/images/", "/media/", "/videos/", "/manuals/", "/snap/")
 
 def cited_by_sheet(real, vdir):
     """Arquivos que um .cue/.m3u/.gdi cita (mesma regra do companionsOf do play.js)."""
-    with open(real, encoding="utf-8", errors="replace") as f:
-        txt = f.read()
+    try:
+        with open(real, encoding="utf-8", errors="replace") as f:
+            txt = f.read()
+    except OSError:
+        return set()
     ext = os.path.splitext(real)[1].lower()
     if ext == ".cue":
         names = [a or b for a, b in re.findall(r'^\s*FILE\s+(?:"([^"]+)"|(\S+))', txt, re.M | re.I)]
@@ -225,7 +229,12 @@ def cited_by_sheet(real, vdir):
 def write_library(out, src, tree, drive_ids, cores_path):
     """library.json.gz: sistemas com jogos (ordem do cores.json, senão do es_systems.cfg) e os jogos com os metadados."""
     systems = read_systems_full(src)
-    cores = json.load(open(cores_path, encoding="utf-8"))["systems"] if cores_path and os.path.isfile(cores_path) else {}
+    cores = {}
+    if cores_path and os.path.isfile(cores_path):
+        with open(cores_path, encoding="utf-8") as f:
+            cores = json.load(f)["systems"]
+    elif cores_path:
+        print(f"aviso: cores.json não encontrado ({cores_path}); sistemas sem núcleo/ordem", file=sys.stderr)
     files = {vp: (real, size) for _, entries in tree for vp, real, size in entries}
     def ref(vpath):
         if not vpath or vpath not in files:
@@ -240,21 +249,24 @@ def write_library(out, src, tree, drive_ids, cores_path):
         prefix = s["dir"] + "/"
         mine = sorted(vp for vp in files if vp.startswith(prefix) and not any(x in vp[len(s["dir"]):] for x in SKIP_DIRS)
                       and any(vp.endswith(e) for e in s["exts"]))
+        mine_set = set(mine)
         meta, hidden = {}, set()
         for vroot, entries in tree:
             if vroot == s["dir"] or vroot.startswith(prefix):
                 for vp, real, _ in entries:
                     if vp.endswith("/gamelist.xml"):
                         meta.update(read_gamelist(real, vroot))
-                    elif vp.lower().endswith(SHEET_EXT) and vp in mine:
+                    elif vp.lower().endswith(SHEET_EXT) and vp in mine_set:
                         hidden |= cited_by_sheet(real, vroot)
         games = []
         for vp in mine:
             if vp in hidden:
                 continue
             m = meta.get(vp, {})
-            name = os.path.basename(vp)
-            g = {"s": folder, "rom": vp, "name": m.get("name") or os.path.splitext(name)[0], "size": files[vp][1]}
+            stem = os.path.basename(vp)
+            while (b := os.path.splitext(stem))[1] and b[1] in s["exts"]:   # celeste.p8.png -> celeste
+                stem = b[0]
+            g = {"s": folder, "rom": vp, "name": m.get("name") or stem, "size": files[vp][1]}
             for k in ("year", "players", "genre", "desc"):
                 if m.get(k):
                     g[k] = m[k]
