@@ -23,6 +23,9 @@ class T(unittest.TestCase):
         touch(self.src, "/roms/snes/Jogo (USA).srm", b"SRM")
         touch(self.src, "/roms/snes/images/Jogo (USA).png", b"PNG")
         touch(self.src, "/roms/bios/scph1001.bin", b"BIOS")
+        touch(self.src, "/roms/snes/sub/dados.dat", b"DAT")
+        touch(self.src, "/roms/snes/sub/Outro (USA).7z", b"ROM2")
+        touch(self.src, "/roms/ports/Jogo.sh", b"#!/bin/sh")
         mkmanifest.build(self.src, self.out)
         self.m = json.load(open(os.path.join(self.out, "manifest.json")))
         self.blob = open(os.path.join(self.out, "eager.bin"), "rb").read()
@@ -30,7 +33,11 @@ class T(unittest.TestCase):
     def test_only_player_files(self):
         self.assertEqual(sorted(self.m["files"]), sorted([
             "/home/ark/.config/retroarch/retroarch-core-options.cfg", "/roms/bios/scph1001.bin",
-            "/roms/snes/Jogo (USA).7z", "/roms/snes/Jogo (USA).srm"]))
+            "/roms/snes/Jogo (USA).7z", "/roms/snes/Jogo (USA).srm", "/roms/snes/sub/Outro (USA).7z"]))
+
+    def test_deep_support_and_ports_left_out(self):
+        self.assertNotIn("/roms/snes/sub/dados.dat", self.m["files"])
+        self.assertNotIn("/roms/ports/Jogo.sh", self.m["files"])
 
     def test_retroarch_cfg_is_eager(self):
         f = self.m["files"]["/home/ark/.config/retroarch/retroarch-core-options.cfg"]

@@ -2,8 +2,8 @@
 """Gera manifest.json + eager.bin + library.json.gz (seletor de jogos: sistemas, jogos, metadados dos gamelist.xml) a partir de uma árvore de cartão (card/ ou card-sample/).
 
 Modo cartão (precisa de um es_systems.cfg em /etc/emulationstation ou ~/.emulationstation): o manifest só tem o que o
-emulador (retroarch/play.js) usa — ROMs (arquivos vazios), arquivos de apoio das pastas de sistema (BIOS de arcade,
-faixas .bin; sob demanda), /roms/bios (sob demanda) e as configs do RetroArch em ~/.config (eager). Tema, /usr, /etc,
+emulador (retroarch/play.js) usa — ROMs (arquivos vazios), arquivos de apoio no topo das pastas de sistema (saves,
+faixas .bin; sob demanda; sem ports), /roms/bios (sob demanda) e as configs do RetroArch em ~/.config (eager). Tema, /usr, /etc,
 gamelist.xml e mídia ficam de fora: capas e metadados vão pelo library.json.gz. Os symlinks da árvore são seguidos
 (card/roms -> cartão montado).
 
@@ -16,9 +16,6 @@ Grava também info.json (sistemas, jogos) para a tela da biblioteca. Os quatro (
 import argparse, datetime, gzip, json, os, re, sys, urllib.parse
 import xml.etree.ElementTree as ET
 
-ROM_EXT = {".7z", ".zip", ".sfc", ".smc", ".nes", ".gb", ".gbc", ".gba", ".md", ".gen", ".bin",
-           ".cue", ".chd", ".iso", ".pbp", ".n64", ".z64", ".v64", ".nds", ".pce", ".sms", ".gg",
-           ".a26", ".a78", ".lnx", ".32x", ".cdi", ".gdi", ".p8", ".png8"}
 def read_systems(src):
     """{'/roms/snes': {'.7z', ...}} do es_systems.cfg da árvore, ou None."""
     for rel in ("home/ark/.emulationstation/es_systems.cfg", "etc/emulationstation/es_systems.cfg"):
@@ -51,6 +48,8 @@ class CardRules:
             return ("eager" if size else "empty") if vpath.startswith("/home/ark/.config/") else None
         if vpath.startswith("/roms/bios/"):
             return "lazy" if size else "empty"
+        if vpath.startswith("/roms/ports/"):
+            return None   # ports são scripts ARM nativos: sem núcleo na web
         for prefix, exts in self.systems:
             if vpath.startswith(prefix + "/"):
                 rest = vpath[len(prefix):]
@@ -58,6 +57,8 @@ class CardRules:
                     return None
                 if any(name.endswith(e) for e in exts):
                     return "empty"
+                if os.path.dirname(vpath) != prefix:
+                    return None   # apoio em subpasta: o player busca direto (fs/ ou extra do Drive)
                 return "lazy" if size else "empty"
         return None
 
