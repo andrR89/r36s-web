@@ -15,7 +15,7 @@ const IMG = /\.(png|jpe?g|webp|gif|svg)$/i;
 const resp = (body, status = 200, headers = {}) => new Response(body, { status, headers });
 const notFound = () => resp(null, 404);
 
-// preload {manifest, eager}: índice já baixado (aba isolada do PSP: a página do ES manda pelo BroadcastChannel)
+// preload {manifest, eager}: índice já baixado (aba isolada do PSP: o seletor manda pelo BroadcastChannel)
 export function createIO({ backend, site, preload }) {
   const drive = site && site.drive;
   const library = site && site.library;
@@ -100,7 +100,7 @@ export function createIO({ backend, site, preload }) {
     }
   }
 
-  // índice (manifest.json, eager.bin ~40 MB) em cache por ID + data de modificação: só baixa de novo quando muda
+  // índice (manifest.json, eager.bin ~0,1 MB, library.json.gz) em cache por ID + data de modificação: só baixa de novo quando muda
   async function indexFile(id, version) {
     const key = `${drive.api}/r36s-cache/index/${id}/${version || ""}`;
     const c = version ? await cache() : null;
@@ -109,10 +109,29 @@ export function createIO({ backend, site, preload }) {
     const r = await drive.media(id);
     if (!r.ok || !c) return r;
     const buf = await r.arrayBuffer();
-    // versões antigas deste mesmo arquivo saem do cache (o eager.bin velho ocuparia 40 MB à toa)
+    // versões antigas deste mesmo arquivo saem do cache (não acumulam a cada nova geração do índice)
     for (const k of await c.keys().catch(() => [])) if (k.url.includes(`/r36s-cache/index/${id}/`) && k.url !== key) c.delete(k).catch(() => {});
     c.put(key, resp(buf.slice(0), 200)).catch(() => {});
     return resp(buf, 200);
+  }
+
+  // manifest e eager do Drive: uma promessa por arquivo, dividida entre as rotas e o loadIndex (um download só)
+  const fail = (what, status) => Object.assign(new Error(`${what} HTTP ${status}`), { status });
+  let manifestP = null, eagerP = null;
+  function driveManifest() {
+    if (manifest) return Promise.resolve(manifest);
+    return manifestP || (manifestP = indexFile(library.index.manifest, library.index.modifiedTime)
+      .then(r => { if (!r.ok) throw fail("manifest", r.status); return r.json(); })
+      .then(m => (manifest = m))
+      .catch(e => { manifestP = null; throw e; }));
+  }
+  // eager vazio só com 404 (índice sem eager); outra falha rejeita e tenta de novo na próxima vez
+  function driveEager() {
+    if (eager) return Promise.resolve(eager);
+    return eagerP || (eagerP = indexFile(library.index.eager, library.index.eagerTime)
+      .then(r => r.ok ? r.arrayBuffer() : r.status === 404 ? new ArrayBuffer(0) : Promise.reject(fail("eager", r.status)))
+      .then(b => (eager = new Uint8Array(b)))
+      .catch(e => { eagerP = null; throw e; }));
   }
 
   // ---- roteador ----
@@ -127,19 +146,11 @@ export function createIO({ backend, site, preload }) {
     }
     // drive
     if (rel === "data/manifest.json") {
-      if (!manifest) {
-        const r = await indexFile(library.index.manifest, library.index.modifiedTime);
-        if (!r.ok) return resp(null, r.status);
-        manifest = await r.json();
-      }
+      try { await driveManifest(); } catch (e) { return resp(null, e.status || 502); }
       return resp(JSON.stringify(manifest), 200, { "Content-Type": "application/json" });
     }
     if (rel === "data/eager.bin") {
-      if (!eager) {
-        const r = await indexFile(library.index.eager, library.index.eagerTime);
-        if (!r.ok) return resp(null, r.status);
-        eager = new Uint8Array(await r.arrayBuffer());
-      }
+      try { await driveEager(); } catch (e) { return resp(null, e.status || 502); }
       return resp(eager.slice(), 200);
     }
     if (rel === "data/library.json.gz") {
@@ -147,7 +158,7 @@ export function createIO({ backend, site, preload }) {
       return r.ok ? r : resp(null, r.status);
     }
     if (rel.startsWith("fs/")) {
-      if (!manifest) await route(new URL("data/manifest.json", ROOT).href);
+      if (!manifest) try { await driveManifest(); } catch (e) { return resp(null, e.status || 502); }
       const vpath = vpathOf(rel);
       const e = entryOf(vpath);
       return e ? driveFile(vpath, e, init) : notFound();
@@ -166,10 +177,11 @@ export function createIO({ backend, site, preload }) {
   let indexPromise = null;
   function loadIndex() {
     if (manifest && eager) return Promise.resolve({ manifest, eager });
+    if (backend === "drive") return Promise.all([driveManifest(), driveEager()]).then(() => ({ manifest, eager }));
     const get = rel => route(new URL(rel, ROOT).href);
     return indexPromise || (indexPromise = Promise.all([
-      get("data/manifest.json").then(r => { if (!r.ok) throw new Error(`manifest HTTP ${r.status}`); return r.json(); }),
-      get("data/eager.bin").then(r => r.ok ? r.arrayBuffer() : new ArrayBuffer(0)),
+      get("data/manifest.json").then(r => { if (!r.ok) throw fail("manifest", r.status); return r.json(); }),
+      get("data/eager.bin").then(r => r.ok ? r.arrayBuffer() : r.status === 404 ? new ArrayBuffer(0) : Promise.reject(fail("eager", r.status))),
     ]).then(([m, e]) => { manifest = m; eager = new Uint8Array(e); return { manifest, eager }; })
       .catch(e => { indexPromise = null; throw e; }));
   }
@@ -180,9 +192,11 @@ export function createIO({ backend, site, preload }) {
     get eager() { return eager; },
     get drive() { return drive; },
     loadIndex,
-    // URL de uma imagem do library.json.gz: caminho do cartão (hub/demo: URL direta, cache HTTP) ou {id, v} (Drive: blob)
+    // URL de uma imagem do library.json.gz: caminho do cartão (hub/demo: URL direta, cache HTTP) ou {id, v} (Drive: blob).
+    // A URL blob é de quem chamou: revogar (URL.revokeObjectURL) quando a imagem sair da tela.
     async image(ref) {
       if (typeof ref === "string") return new URL("fs" + enc(ref), backend === "demo" ? demoRoot : ROOT).href;
+      if (!drive) throw new Error("imagem do Drive sem login no Drive");
       const c = await cache(), key = cacheKey(ref);
       let r = c && await c.match(key).catch(() => null);
       if (r) stats.cached++;
@@ -192,10 +206,10 @@ export function createIO({ backend, site, preload }) {
           r = await drive.media(ref.id);
           stats.media++;
           if (!r.ok) throw new Error(`imagem HTTP ${r.status}`);
-          const buf = await r.arrayBuffer();
+          const buf = await r.arrayBuffer(), type = { "Content-Type": r.headers.get("Content-Type") || "" };
           stats.bytes += buf.byteLength;
-          if (c) c.put(key, resp(buf.slice(0), 200)).catch(() => {});
-          r = resp(buf, 200);
+          if (c) c.put(key, resp(buf.slice(0), 200, type)).catch(() => {});
+          r = resp(buf, 200, type);
         } finally { done(); }
       }
       return URL.createObjectURL(await r.blob());
@@ -209,7 +223,7 @@ export function createIO({ backend, site, preload }) {
     xhrFrom(base) {
       return class extends XMLHttpRequest {
         open(method, url, async = true) {
-          if (backend === "hub") return super.open(method, url, async);
+          if (backend === "hub") return super.open(method, new URL(url, base).href, async);
           const abs = new URL(url, base).href, rel = relOf(abs);
           this._r36sAuth = false;
           if (rel && rel.startsWith("fs/")) {
