@@ -30,7 +30,7 @@ def touch(root, rel, data=b""):
     open(p, "wb").write(data)
 
 class Library(unittest.TestCase):
-    def make(self, drive=False):
+    def make(self, drive=False, marquee=False):
         src, out = tempfile.mkdtemp(), tempfile.mkdtemp()
         touch(src, "/etc/emulationstation/es_systems.cfg", SYSTEMS.encode())
         touch(src, "/roms/snes/gamelist.xml", GAMELIST.encode())
@@ -38,6 +38,8 @@ class Library(unittest.TestCase):
         touch(src, "/roms/snes/Ação Total.7z", b"Z" * 5)
         touch(src, "/roms/snes/images/DKC3-image.png", b"PNG")
         touch(src, "/roms/snes/images/DKC3-thumb.png", b"PNG")
+        if marquee:
+            touch(src, "/roms/snes/images/DKC3-marquee.png", b"PNG")
         touch(src, "/roms/psx/Disco (USA).cue", b'FILE "Disco (USA).bin" BINARY\n')
         touch(src, "/roms/psx/Disco (USA).bin", b"BIN")
         touch(src, "/roms/pico-8/carts/jogo.p8.png", b"P8")
@@ -110,8 +112,22 @@ class Library(unittest.TestCase):
     def test_drive_refs_are_ids(self):
         lib, ids = self.make(drive=True)
         dk = next(g for g in lib["games"] if g["name"] == "Donkey Kong Country 3")
-        self.assertEqual(dk["box"], {"id": ids["snes/images/DKC3-thumb.png"]["id"], "v": ids["snes/images/DKC3-thumb.png"]["v"]})
-        self.assertEqual(dk["id"], ids["snes/Donkey Kong Country 3 (USA).sfc"]["id"])
+        box = ids["snes/images/DKC3-thumb.png"]
+        want = box["id"] + ("." + box["v"][:6] if box["v"] else "")
+        self.assertEqual(dk["box"], want)   # "<id>.<6 primeiros da versão>": string compacta (IDs do Drive não comprimem)
+        self.assertFalse(dk["box"].startswith("/"))
+        # sem o ID da ROM (o download pega do manifest) nem logo (a interface não usa)
+        for g in lib["games"]:
+            self.assertNotIn("id", g)
+            self.assertNotIn("logo", g)
+            for k in ("box", "shot"):
+                if k in g:
+                    self.assertRegex(g[k], r"^[^./]+(\.[^.]{1,6})?$")
+
+    def test_no_logo_even_if_marquee_exists(self):
+        lib, _ = self.make(marquee=True)
+        for g in lib["games"]:
+            self.assertNotIn("logo", g)
 
 if __name__ == "__main__":
     unittest.main()

@@ -54,18 +54,22 @@ sem compressão; o navegador descompacta com `DecompressionStream`)
   "systems": [ { "id": "snes", "name": "Super Nintendo", "count": 812, "playable": true, "note": "" } ],
   "games": [ { "s": "snes", "rom": "/roms/snes/Donkey Kong Country 3 (USA).sfc", "name": "Donkey Kong Country 3",
                "year": 1996, "players": "1-2", "genre": "Plataforma", "desc": "…",
-               "size": 4194304, "id": "<ID da ROM no Drive, só com --drive-ids>",
-               "box": "<ref>", "shot": "<ref>", "logo": "<ref>" } ] }
+               "size": 4194304, "box": "<ref>", "shot": "<ref>" } ] }
 ```
 - Fontes: `gamelist.xml` de cada sistema (`name`, `desc`, `releasedate`, `players`, `genre`, `thumbnail`,
-  `image`, `marquee`), `/etc/emulationstation/es_systems.cfg` (nome, pastas, extensões, ordem) e
+  `image`; `marquee` é ignorado), `/etc/emulationstation/es_systems.cfg` (nome, pastas, extensões, ordem) e
   `data/cores.json` (`playable`, `note`).
 - ROM sem entrada no `gamelist`: nome = arquivo sem extensão, sem descrição nem imagens. Entradas do `gamelist`
   cujo arquivo não existe são ignoradas. Arquivos auxiliares (`.bin` citados por `.cue`, BIOS) não viram jogo:
   vale a lista de extensões do `es_systems.cfg`, e `.cue/.m3u/.gdi` escondem os arquivos que citam.
-- `<ref>` de imagem: com `--drive-ids`, `{"id": "<ID no Drive>", "v": "<modifiedTime>"}` (o seletor busca direto,
-  sem esperar o manifest); sem, o caminho virtual do cartão (`/roms/snes/images/…-thumb.png`), servido por `fs/` no
-  hub e por `site/demo/` no demo. Campos vazios são omitidos.
+- `<ref>` de imagem: com `--drive-ids`, a string `"<ID no Drive>.<6 primeiros caracteres da versão>"` (versão = md5
+  ou data do `lsjson`; sem versão fica só o ID) — o seletor busca direto, sem esperar o manifest, e o cache usa
+  ID + versão; sem `--drive-ids`, o caminho virtual do cartão (`/roms/snes/images/…-thumb.png`, sempre começa com
+  `/`), servido por `fs/` no hub e por `site/demo/` no demo. `io.image` aceita ainda `{"id", "v"}` de índices
+  antigos. Campos vazios são omitidos.
+- Sem o ID da ROM e sem `logo` (`marquee`, a interface não usa): IDs do Drive são aleatórios e não comprimem; com
+  eles o índice do cartão inteiro passava de 1 MB em gzip. O download da ROM pega o ID no `manifest.json`
+  (`files[rom].id`, ou `extra`), que a essa altura já veio em segundo plano.
 - `manifest.json` continua (o emulador acha ROM, BIOS, irmãs da pasta e configs do cartão por ele). O seletor
   carrega o manifest em segundo plano depois da primeira tela.
 - `eager.bin` fica só com o que o emulador lê fora de `/roms` e não está no Drive: as configs do RetroArch do cartão
@@ -109,6 +113,7 @@ Saem: `web/emulationstation.{js,wasm}`, `web/fsboot.js`, a parte de ES do `web/b
 - Hub e demo: link direto (`<a download>`) para o arquivo.
 - Drive, até 100 MB: `drive.media` com o token no cabeçalho → Blob → download com o nome original, com progresso
   na ficha e cancelar.
+- Drive: o ID vem do `manifest.json` (`io.loadIndex()`), não do `library.json`.
 - Drive, acima de 100 MB: abre `https://drive.google.com/file/d/<id>/view` numa aba nova (download pelo próprio
   Google, sem segurar o arquivo na memória do celular).
 - O token nunca vai em URL.

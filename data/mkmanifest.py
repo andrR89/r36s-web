@@ -179,7 +179,8 @@ def write_library(out, src, tree, drive_ids, cores_path):
         if drive_ids is None:
             return vpath
         d = drive_ids.get(vpath[len("/roms/"):])
-        return {"id": d["id"], "v": d["v"]} if d else None
+        # "<id>.<6 primeiros da versão>": string compacta (IDs do Drive não comprimem; a versão só serve de chave de cache)
+        return d["id"] + ("." + d["v"][:6] if d["v"] else "") if d else None
     out_systems, out_games = [], []
     for pos, s in enumerate(systems):
         folder = s["dir"].split("/")[2]   # id = pasta logo abaixo de /roms (pico-8/carts -> pico-8)
@@ -207,14 +208,11 @@ def write_library(out, src, tree, drive_ids, cores_path):
             for k in ("year", "players", "genre", "desc"):
                 if m.get(k):
                     g[k] = m[k]
-            for k in ("box", "shot", "logo"):
+            # sem "logo" (a interface não usa) nem o ID da ROM (o download pega do manifest): índice < 1 MB no Drive
+            for k in ("box", "shot"):
                 r = ref(m.get(k))
                 if r:
                     g[k] = r
-            if drive_ids is not None:
-                d = drive_ids.get(vp[len("/roms/"):])
-                if d:
-                    g["id"] = d["id"]
             games.append(g)
         if not games:
             continue

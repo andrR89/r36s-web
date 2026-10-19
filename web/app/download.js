@@ -13,15 +13,18 @@ function save(href, name) {
 export async function downloadRom(io, g, onProgress, signal) {
   const name = g.rom.slice(g.rom.lastIndexOf("/") + 1);
   if (io.backend !== "drive") { save(io.romUrl(g.rom), name); return "link"; }
-  if (!g.id) throw new Error("a biblioteca não tem o ID deste arquivo (gere o índice de novo)");
+  // o ID do Drive vem do manifest (o library.json.gz não leva: IDs não comprimem e o seletor abre antes)
+  const { manifest } = await io.loadIndex();
+  const id = (manifest.files[g.rom] || manifest.extra?.[g.rom])?.id;
+  if (!id) throw new Error("o índice não tem o ID deste arquivo (gere o índice de novo)");
   if (g.size > BLOB_MAX) {
     // sem "noopener" no open: com ele o retorno é sempre null e não dá para saber se o pop-up foi bloqueado
-    const w = window.open(`https://drive.google.com/file/d/${encodeURIComponent(g.id)}/view`, "_blank");
+    const w = window.open(`https://drive.google.com/file/d/${encodeURIComponent(id)}/view`, "_blank");
     if (!w) throw new Error("o navegador bloqueou a aba: toque no botão de novo ou permita pop-ups");
     w.opener = null;
     return "drive";
   }
-  const r = await io.drive.media(g.id, { signal });
+  const r = await io.drive.media(id, { signal });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const total = Number(r.headers.get("Content-Length")) || g.size;
   const parts = [];

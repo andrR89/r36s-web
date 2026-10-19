@@ -19,10 +19,13 @@ const want = createHash("md5").update(readFileSync("/home/andre/Workspace/web-po
 const drive = await p.evaluate(async () => {
   const { downloadRom } = await import("/r36s/app/download.js");
   const opened = []; const origOpen = window.open;
-  const io = { backend: "drive", drive: { media: async () => new Response(new Uint8Array(1234)) } };
-  const bigG = { rom: "/roms/psx/y.chd", size: 300 << 20, id: "ID2" };
+  // o ID vem do manifest (loadIndex), não do jogo do library.json.gz
+  const manifest = { files: { "/roms/gbc/x.gbc": { size: 1234, id: "ID1" }, "/roms/psx/y.chd": { size: 300 << 20, id: "ID2" } } };
+  const io = { backend: "drive", loadIndex: async () => ({ manifest, eager: new Uint8Array(0) }),
+               drive: { media: async () => new Response(new Uint8Array(1234)) } };
+  const bigG = { rom: "/roms/psx/y.chd", size: 300 << 20 };
   window.open = (u) => { opened.push(u); return { opener: 1 }; };
-  const small = await downloadRom(io, { rom: "/roms/gbc/x.gbc", size: 1234, id: "ID1" }, () => {});
+  const small = await downloadRom(io, { rom: "/roms/gbc/x.gbc", size: 1234 }, () => {});
   const big = await downloadRom(io, bigG, () => {});
   window.open = (u) => { opened.push(u); return null; };
   let blocked = null;
