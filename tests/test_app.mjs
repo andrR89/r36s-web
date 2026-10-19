@@ -18,6 +18,12 @@ const lib = createLibrary(data);
 t("norm: sem acento e minúsculo", () => assert.equal(norm("AÇÃO Total"), "acao total"));
 t("jogos do sistema em ordem A–Z", () => assert.deepEqual(lib.games("snes").map(g => g.name), ["Ação Total", "Chrono Trigger", "Donkey Kong Country 3"]));
 t("ordem por ano (empate: nome)", () => assert.deepEqual(lib.games("snes", "ano").map(g => g.name), ["Ação Total", "Chrono Trigger", "Donkey Kong Country 3"]));
+t("ordem por ano: mais velho primeiro, sem ano no fim", () => {
+  const l = createLibrary({ systems: [{ id: "x", name: "X", count: 3 }], games: [
+    { s: "x", rom: "/a", name: "Alfa", year: 2001 }, { s: "x", rom: "/b", name: "Beta" }, { s: "x", rom: "/c", name: "Gama", year: 1990 }] });
+  assert.deepEqual(l.games("x", "ano").map(g => g.name), ["Gama", "Alfa", "Beta"]);
+});
+t("lista do sistema não pode ser bagunçada por quem usa", () => assert.throws(() => lib.games("snes").reverse()));
 t("busca sem acento, várias palavras", () => assert.deepEqual(lib.search("acao").map(g => g.name), ["Ação Total"]));
 t("busca: começo do nome vem antes", () => assert.deepEqual(lib.search("d").map(g => g.name), ["Donkey Kong Country 3", "Doom"]));
 t("busca por 'kong 3'", () => assert.deepEqual(lib.search("kong 3").map(g => g.rom), ["/roms/snes/a.sfc"]));

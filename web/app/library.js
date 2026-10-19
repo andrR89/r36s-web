@@ -16,7 +16,8 @@ export function createLibrary(data) {
   const games = data.games.map(g => ({ ...g, key: norm(g.name) }));
   const bySystem = new Map(systems.map(s => [s.id, []]));
   for (const g of games) if (bySystem.has(g.s)) bySystem.get(g.s).push(g);
-  for (const [id, l] of bySystem) bySystem.set(id, sortGames(l));
+  // congeladas: a mesma lista volta em toda chamada (sem cópia); quem precisar mudar a ordem copia antes
+  for (const [id, l] of bySystem) bySystem.set(id, Object.freeze(sortGames(l)));
   const byRom = new Map(games.map(g => [g.rom, g]));
   return {
     systems,
