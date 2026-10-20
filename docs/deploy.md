@@ -1,24 +1,30 @@
 # Publicar o R36S Web (Netlify + Google Drive)
 
-> **Nada aqui foi feito ainda.** Cada passo que mexe em serviço externo (Netlify, Google Cloud, Drive) só com o ok
-> do andre. O site já funciona local: `http://localhost:8770/r36s/site/` (hub, porta 8770).
+> Cada passo que mexe em serviço externo (Netlify, Google Cloud, Drive, Supabase) só com o ok do andre. O site já funciona local: `http://localhost:8770/r36s/site/` (hub, porta 8770).
 
 ## Como as peças se encaixam
 
+A biblioteca no Drive é **cifrada** (spec `docs/superpowers/specs/2026-10-20-acesso-cifrado-design.md`): quem vê a
+pasta não descobre nem os nomes dos jogos. Quem entrega as chaves é o backend da biblioteca
+(`~/Workspace/web-ports/biblioteca`, Supabase `h-games-web`).
+
 ```
-Netlify (estático, dist/)                Google Drive do andre              Google Drive de cada jogador
-  /site/        home, login, biblioteca     R36S/            (= cartão EASYROMS)  R36S Web — saves/<sistema>/<arquivo>
-  /index.html   seletor de jogos, iframe    R36S/.web/manifest.json             (criada pelo site, escopo drive.file;
-  /retroarch/   RetroArch + núcleos         R36S/.web/eager.bin                  o Drive guarda as revisões)
-  /site/demo/   homebrews livres            R36S/.web/library.json.gz
-                                            R36S/.web/info.json
+Netlify (estático, dist/)          Google Drive do andre                  Supabase h-games-web (backend da biblioteca)
+  /site/      home, login            R36S-dados/  arquivos de nome opaco    função r36s: confere o login Google e entrega
+  /index.html seletor (iframe)         (ROMs, BIOS, capas, miniaturas e o     as chaves (catálogo, BIOS, uma por sistema)
+  /retroarch/ RetroArch + núcleos      índice, tudo ChaCha20-Poly1305);       Vault: r36s:mestra (as chaves derivam dela)
+  /site/demo/ homebrews livres         link "qualquer pessoa: leitor"         r36s_indice: onde está o índice no Drive
+                                                                              acesso: r36s:* | r36s:<sistema> por e-mail
+Google Drive de cada jogador: R36S Web — saves/<sistema>/<arquivo> (escopo drive.file; o Drive guarda as revisões)
 ```
 
-- Login: Google Identity Services (popup), escopos `drive.readonly` (ler a pasta R36S, própria ou compartilhada) e
-  `drive.file` (só os arquivos que o site cria: os saves). Token só em memória.
-- Leitura: `GET https://www.googleapis.com/drive/v3/files/<id>?alt=media` com `Range` — os IDs vêm do manifesto.
-- Código: `web/drive.js` (API do Drive), `web/io.js` (traduz o "idioma" do hub — `fs/`, `saves/`, `data/` — para o
-  Drive), `web/site/` (telas), `web/controls.js` (comandos, toque, controles, 2 jogadores).
+- Login: Google Identity Services (popup), escopos `drive.readonly` (ler os arquivos da pasta por ID) e `drive.file`
+  (os saves). Token só em memória. Com o token, o site chama a função `r36s` e recebe o ponteiro do índice e as chaves
+  (embrulhadas por ECDH; ficam só em memória).
+- Leitura: `GET https://www.googleapis.com/drive/v3/files/<id>?alt=media` com `Range` (blocos cifrados de 1 MiB); o
+  `web/io.js` decifra. O player lê arquivos grandes sob demanda com `io.readSync` (XHR síncrono + ChaCha20).
+- Código: `web/cripto.js` (formato), `web/site/acesso.js` (backend), `web/drive.js` (API do Drive), `web/io.js`
+  (traduz `fs/`, `saves/`, `data/` para o Drive), `web/site/` (telas), `web/controls.js` (comandos, toque, controles).
 
 ## 1. Google Cloud: origem autorizada e usuários de teste (console, projeto `r36s-web`)
 
@@ -36,47 +42,40 @@ Client ID: `744452506858-bc5ddj07lucb2kqgpcr8t7svfdmrfu1s.apps.googleusercontent
    (Avançado → Acessar R36S Web).
 3. Atualizar `config/google.json` (`authorizedOrigins`) para registrar o que foi adicionado.
 
-## 2. Subir as ROMs para o Drive (rclone, na máquina do andre)
-
-O cartão montado (`/run/media/andre/EASYROMS`, só leitura) vira a pasta `R36S` na raiz do Drive do andre.
+## 2. Backend (uma vez; repositório da biblioteca, só com o ok do andre)
 
 ```bash
-# uma vez: remote "gdrive" (OAuth do próprio rclone, no navegador)
-rclone config create gdrive drive scope=drive
-# cópia (46 GB; dá para retomar). Só lê do cartão.
-rclone copy /run/media/andre/EASYROMS gdrive:R36S --progress --transfers 8 --checkers 16 \
-  --exclude ".Trash-1000/**" --exclude "*.log"
+cd ~/Workspace/web-ports/biblioteca
+tools/publicar.sh r36s-migrar                    # tabela r36s_indice e funções (migração 0003)
+tools/publicar.sh funcoes                        # Edge Functions chave, jogadas, conta e r36s
+cd ~/Workspace/web-ports/r36s && node data/cifrar.mjs mestra   # ~/.config/r36s/mestra (600): GUARDAR UMA CÓPIA
+cd ~/Workspace/web-ports/biblioteca && tools/publicar.sh r36s-chave   # a mestra no Vault
 ```
 
-Dica: começar por uma pasta (`rclone copy /run/media/andre/EASYROMS/snes gdrive:R36S/snes`) para testar antes de subir tudo. A pasta `themes/` (temas do
-EmulationStation) não é usada pelo site: `build/upload/sobe.sh` deixa ela de fora.
+Sem a mestra, a biblioteca no Drive não abre mais: guardar cópia num lugar seguro.
 
-## 3. Gerar e subir o índice (`R36S/.web`)
+## 3. Cifrar e subir a biblioteca (`build/upload/sobe.sh`, fora do git)
 
-```bash
-cd ~/Workspace/web-ports/r36s
-# miniaturas WebP das capas (~16 KB cada; cache em build/upload/capas-cache, só refaz as que mudaram), juntadas num
-# pacote por sistema em /tmp/r36s-web/capas/<sistema>.bin, que sobe para R36S/.web/capas
-python3 data/mkmanifest.py card /tmp/r36s-web --thumbs build/upload/capas-cache
-rclone copy /tmp/r36s-web/capas gdrive:R36S/.web/capas --progress
-rclone lsjson -R --hash --files-only gdrive:R36S > /tmp/r36s-drive.json      # caminhos + IDs + md5 (com os pacotes)
-python3 data/mkmanifest.py card /tmp/r36s-web --drive-ids /tmp/r36s-drive.json --thumbs build/upload/capas-cache
-rclone copy /tmp/r36s-web gdrive:R36S/.web --progress                         # manifest.json, eager.bin, library.json.gz, info.json
-```
+O cartão montado (`/run/media/andre/EASYROMS`, só leitura) é lido pela árvore local `card/` (`data/mkcard.py`).
 
-`build/upload/sobe.sh` faz esses passos (função `indice`). O seletor lê cada miniatura do pacote com Range; sistema cujo
-pacote não está na listagem do Drive fica sem miniaturas e usa as capas originais.
+1. `mkmanifest.py card build/upload/claro --thumbs build/upload/capas-cache`: o índice em claro, só local.
+2. `cifrar.mjs cifrar`: cada arquivo de `card/roms` (fora `ports/`, `themes/`, `*.log`) vira
+   `build/upload/dados/<opaco>`; só cifra de novo o que mudou. O mapa com os nomes reais
+   (`build/upload/mapa.json`) **nunca sobe**.
+3. `rclone sync build/upload/dados gdrive:R36S-dados` (só nessa pasta: o que saiu do cartão sai do Drive).
+4. `cifrar.mjs indice` com o `lsjson` da pasta: manifest/library com os IDs, cifrados; sobem também.
+5. `cifrar.mjs ponteiro` -> `build/upload/indice.json` -> `tools/publicar.sh r36s-indice` (biblioteca).
 
-`card/` é a árvore local de sempre (`data/mkcard.py`: ROOTFS + `card/roms` -> cartão). O script avisa quantos arquivos
-de `/roms` não têm ID (não subiram). Refazer o índice sempre que mudar o cartão (novo jogo, capa, gamelist).
-O rclone mantém o ID ao atualizar um arquivo; o `md5` vira a versão do cache das capas no navegador.
+Primeira carga: ~38,6 GiB. Depois: `rclone link gdrive:R36S-dados` (link de leitor, para quem foi aprovado baixar).
+Refazer (rodar o `sobe.sh` de novo) sempre que mudar o cartão (novo jogo, capa, gamelist).
 
-## 4. Compartilhar a biblioteca com a família
+## 4. Dar acesso à família
 
-No Drive: pasta `R36S` → Compartilhar → e-mail da pessoa como **Leitor**. Para o botão **Pedir acesso** (tela
-"Nenhuma biblioteca") funcionar: Compartilhar → Copiar link, e colar em `requestAccessUrl` em `web/site/config.js`
-(o Google mostra "Solicitar acesso" para quem não tem e manda e-mail ao dono).
-O e-mail da pessoa também precisa estar nos **usuários de teste** (passo 1.2).
+A pessoa entra no site com o Google; sem acesso, vê "Sem acesso à biblioteca" e manda o pedido (nome e mensagem).
+O andre aprova no `admin.html` da biblioteca (https://h-games-web.netlify.app/admin.html): "Todo o R36S" ou por
+sistema. Direto pela linha de comando: `tools/publicar.sh acesso <email> 'r36s:*'` (ou `r36s:snes`), na biblioteca.
+O e-mail da pessoa também precisa estar nos **usuários de teste** do app OAuth (passo 1.2), enquanto ele não for
+verificado.
 
 ## 5. Montar e publicar no Netlify
 
@@ -86,7 +85,8 @@ build/site-dist.sh            # -> dist/ (~240 MB, ~75 MB com gzip); sem ROMs, s
 
 Conferir local antes: `python3 -m http.server 8782 --directory dist` e abrir `http://localhost:8782/site/`
 (o login real do Google só funciona numa origem autorizada; o modo demonstração funciona em qualquer uma).
-Testes: `node tests/e2e_site.mjs http://localhost:8782/` (usa o mock do Drive).
+Testes: `node tests/e2e_site.mjs http://localhost:8782/` (Drive simulado cifrado + backend local
+`tests/mock_chaves.mjs`).
 
 Publicar (só com o ok do andre):
 
@@ -109,7 +109,7 @@ npx netlify-cli deploy --dir dist --prod     # produção
 ## 6. Testes que só o andre consegue fazer
 
 - Login Google de verdade (aviso de app não verificado, os dois escopos, renovação do token depois de 1 h).
-- Pasta compartilhada de verdade com outra conta (usuário de teste).
+- Outra conta de verdade: pedir acesso, aprovar no admin, entrar de novo.
 - Controles físicos (Xbox/PlayStation/8BitDo, USB e Bluetooth): mapeamento por posição, 2 controles, Start+Select no
   seletor para trocar P1/P2. O teste automático usa `navigator.getGamepads` falso.
 - Celular (A54): joystick de toque em pé e deitado, multitoque, tela cheia.

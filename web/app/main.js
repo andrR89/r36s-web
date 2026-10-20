@@ -45,7 +45,7 @@ try {
   lib = createLibrary(JSON.parse(text));
 } catch (e) {
   status.className = "err";
-  status.textContent = e.old ? "Esta biblioteca precisa ser atualizada: rode data/mkmanifest.py --drive-ids e build/upload/sobe.sh (docs/deploy.md)." : `Não deu para abrir a biblioteca: ${e.message}`;
+  status.textContent = e.old ? "Esta biblioteca precisa ser atualizada: rode build/upload/sobe.sh (docs/deploy.md)." : `Não deu para abrir a biblioteca: ${e.message}`;
   window.r36s.error = e.message;
   throw e;
 }
