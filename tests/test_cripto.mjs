@@ -58,9 +58,19 @@ test("AAD: bloco trocado, cortado ou com outra chave falha", async () => {
   const trocado = new Uint8Array(cif.length);
   trocado.set(cif.subarray(C.CIFRADO), 0); trocado.set(cif.subarray(0, C.CIFRADO), C.CIFRADO);
   await assert.rejects(C.decifrarArquivo(k, trocado));
-  assert.throws(() => C.decifrarIntervaloSync(k, trocado, 0, 10, texto.length));
+  // o caminho síncrono não confere a etiqueta: devolve bytes errados, sem lançar
+  assert.notEqual(hex(C.decifrarIntervaloSync(k, trocado, 0, 10, texto.length)), hex(texto.subarray(0, 11)));
   await assert.rejects(C.decifrarArquivo(k, cif.subarray(0, C.CIFRADO)));     // n_blocos no AAD: arquivo cortado
   await assert.rejects(C.decifrarArquivo(outra, cif));
+});
+
+test("síncrono == assíncrono num bloco de índice > 0", async () => {
+  const k = await C.derivar(mestra, "sistema:snes"), size = 3 * C.BLOCO + 7, texto = aleatorio(size), cif = await C.cifrarArquivo(k, texto);
+  const de = C.BLOCO + 100, ate = 2 * C.BLOCO + 50, f = C.faixa(de, ate, size);
+  const pedaco = cif.subarray(f.cDe, f.cAte + 1), esperado = hex(texto.subarray(de, ate + 1));
+  assert.equal(f.i, 1);
+  assert.equal(hex(C.decifrarIntervaloSync(k, pedaco, de, ate, size)), esperado);
+  assert.equal(hex(await C.decifrarIntervalo(k, pedaco, de, ate, size)), esperado);
 });
 
 test("registro de miniatura", async () => {

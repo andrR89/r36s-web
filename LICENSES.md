@@ -1,1 +1,1 @@
-- web/vendor/noble-aes.js — @noble/ciphers 2.0.1 (MIT, Paul Miller), AES-GCM; licença em web/vendor/LICENSE-noble-ciphers
+- web/vendor/noble-chacha.js — @noble/ciphers 2.0.1 (MIT, Paul Miller), ChaCha20-Poly1305; licença em web/vendor/LICENSE-noble-ciphers

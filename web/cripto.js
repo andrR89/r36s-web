@@ -2,15 +2,18 @@
 // arquivo roda no navegador (io.js, site) e no Node (data/cifrar.mjs, testes).
 //
 //   chave(s) = HKDF-SHA256(mestra, salt "r36s-web/v1", info s): "sistema:<pasta de /roms>", "bios", "catalogo", "nomes"
-//   arquivo  = blocos de 1 MiB: nonce (12) || AES-256-GCM(texto) || tag (16); AAD = "r36s" || u32 i || u32 n_blocos
+//   arquivo  = blocos de 1 MiB: nonce (12) || ChaCha20-Poly1305(texto) || tag (16); AAD = "r36s" || u32 i || u32 n_blocos
 //              nonce = HMAC-SHA256(chave, u32 i || texto)[:12] (mesmo conteúdo -> mesmo arquivo: republicar só sobe o
 //              que mudou)
-//   registro = miniatura: nonce || GCM(webp) || tag, AAD "r36s-thumb", nonce = HMAC(chave, webp)[:12]
+//   registro = miniatura: nonce || ChaCha20-Poly1305(webp) || tag, AAD "r36s-thumb", nonce = HMAC(chave, webp)[:12]
 //
-// Assíncrono = WebCrypto. Síncrono (decifrarIntervaloSync) = AES-GCM da @noble/ciphers: o lazyFile do player lê com
-// XHR síncrono dentro do fread do núcleo, onde a WebCrypto (só assíncrona) não serve. Por isso a chave do sistema
-// chega ao JS como bytes (só em memória).
-import { gcm } from "./vendor/noble-aes.js";
+// Cifra: ChaCha20-Poly1305 (@noble/ciphers) em vez de AES-GCM: em JS puro o AES-GCM levava ~590 ms por 4 MB com a CPU
+// 4x mais lenta, o ChaCha20 ~60 ms. O lazyFile do player lê com XHR síncrono dentro do fread do núcleo, onde a
+// WebCrypto (só assíncrona) não serve; por isso decifrarIntervaloSync usa só o fluxo ChaCha20 (contador 1, RFC 8439)
+// e NÃO confere a etiqueta (bloco adulterado vira bytes errados, não erro; confere 61 vs 146 ms por 4 MB a 4x).
+// Os caminhos assíncronos (io.js, empacotador) conferem a etiqueta. A chave do sistema chega ao JS como bytes
+// (só em memória).
+import { chacha20, chacha20poly1305 } from "./vendor/noble-chacha.js";
 
 const subtle = globalThis.crypto.subtle;
 const te = new TextEncoder();
@@ -48,18 +51,10 @@ const hmac = async (chave, ...partes) => {
   for (const p of partes) { tudo.set(p, at); at += p.length; }
   return new Uint8Array(await subtle.sign("HMAC", k, tudo));
 };
-// CryptoKey por chave crua (as mesmas chaves decifram milhares de blocos)
-const chavesGcm = new WeakMap();
-const gcmKey = chave => {
-  let k = chavesGcm.get(chave);
-  if (!k) chavesGcm.set(chave, (k = subtle.importKey("raw", chave, { name: "AES-GCM" }, false, ["encrypt", "decrypt"])));
-  return k;
-};
-
 // ---- cifrar (empacotador) ----
 export async function cifrarBloco(chave, i, n, texto) {
   const iv = (await hmac(chave, Uint8Array.from(u32(i)), texto)).subarray(0, 12);
-  const c = new Uint8Array(await subtle.encrypt({ name: "AES-GCM", iv, additionalData: aad(i, n) }, await gcmKey(chave), texto));
+  const c = chacha20poly1305(chave, iv, aad(i, n)).encrypt(texto);
   const out = new Uint8Array(12 + c.length);
   out.set(iv, 0); out.set(c, 12);
   return out;
@@ -71,7 +66,7 @@ export async function cifrarArquivo(chave, texto) {
 }
 export async function cifrarRegistro(chave, dados) {
   const iv = (await hmac(chave, dados)).subarray(0, 12);
-  const c = new Uint8Array(await subtle.encrypt({ name: "AES-GCM", iv, additionalData: AAD_THUMB }, await gcmKey(chave), dados));
+  const c = chacha20poly1305(chave, iv, AAD_THUMB).encrypt(dados);
   const out = new Uint8Array(12 + c.length);
   out.set(iv, 0); out.set(c, 12);
   return out;
@@ -83,10 +78,10 @@ export async function nomeOpaco(chaveNomes, texto) {
 // ---- decifrar ----
 // blocos consecutivos a partir do bloco i (cifrado começa no início do bloco i); n = blocos do arquivo inteiro
 async function decifrarBlocos(chave, cifrado, i, n) {
-  const k = await gcmKey(chave), partes = [];
+  const partes = [];
   for (let at = 0, b = i; at < cifrado.length; at += CIFRADO, b++) {
     const bloco = cifrado.subarray(at, at + CIFRADO);
-    partes.push(new Uint8Array(await subtle.decrypt({ name: "AES-GCM", iv: bloco.subarray(0, 12), additionalData: aad(b, n) }, k, bloco.subarray(12))));
+    partes.push(chacha20poly1305(chave, bloco.subarray(0, 12), aad(b, n)).decrypt(bloco.subarray(12)));
   }
   return junta(partes);
 }
@@ -94,7 +89,8 @@ function decifrarBlocosSync(chave, cifrado, i, n) {
   const partes = [];
   for (let at = 0, b = i; at < cifrado.length; at += CIFRADO, b++) {
     const bloco = cifrado.subarray(at, at + CIFRADO);
-    partes.push(gcm(chave, bloco.subarray(0, 12), aad(b, n)).decrypt(bloco.subarray(12)));
+    // sem conferir a etiqueta (ver o cabeçalho); o contador 1 é o do ChaCha20-Poly1305 (0 é da chave do Poly1305)
+    partes.push(chacha20(chave, bloco.subarray(0, 12), bloco.subarray(12, bloco.length - 16), undefined, 1));
   }
   return junta(partes);
 }
@@ -121,7 +117,7 @@ export async function decifrarArquivo(chave, cifrado) {
   return size ? decifrarIntervalo(chave, cifrado, 0, size - 1, size) : new Uint8Array(0);
 }
 export async function decifrarRegistro(chave, r) {
-  return new Uint8Array(await subtle.decrypt({ name: "AES-GCM", iv: r.subarray(0, 12), additionalData: AAD_THUMB }, await gcmKey(chave), r.subarray(12)));
+  return chacha20poly1305(chave, r.subarray(0, 12), AAD_THUMB).decrypt(r.subarray(12));
 }
 
 // ---- chaves vindas do backend (mesmo embrulho da biblioteca: ECDH P-256 + AES-KW) ----
