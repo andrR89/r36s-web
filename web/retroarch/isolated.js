@@ -1,7 +1,7 @@
 // Aba isolada do player (isolated.html): núcleos com pthreads (cores.json "threads": PSP) lançados pelo site.
 // Com COOP same-origin a aba não tem window.opener; tudo que o player pegaria do pai (parent.r36s.io) vem da página do
 // seletor (web/app/launch.js) pelo BroadcastChannel "r36s-isolated", mensagens com o id da sessão (?session=):
-//   aba -> seletor: hello (pede a configuração), token {force} (renovação), play {data} (r36s-started/r36s-exit do play.js),
+//   aba -> seletor: hello (pede a configuração e o jogo: system/core/rom não vão na URL), token {force} (renovação), play {data} (r36s-started/r36s-exit do play.js),
 //              alive (a cada 2 s), gone (aba fechando sem sair pelo jogo)
 //   seletor -> aba: reply {rid, ...} (resposta a hello/token), close (o seletor pediu para voltar à lista)
 // O token do Drive só existe em memória aqui (nem URL nem localStorage); renovação a cada minuto e no 401.
@@ -90,6 +90,7 @@ async function boot() {
   padOrder(cfg.slots);
   Object.assign(host, {
     io, manifest: cfg.manifest, backend: cfg.backend, getToken,
+    params: { system: cfg.system || "", core: cfg.core || "", rom: cfg.rom || "" },   // o play.js lê daqui, não da URL
     post(data) {
       if (data.type === "r36s-exit") end(data);
       else send({ type: "play", data });

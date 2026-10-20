@@ -33,12 +33,13 @@ const EAGER_MAX = 48 << 20;   // ROM até 48 MB: baixa inteira; acima (CHD/ISO):
 const ARCHIVE = /\.(7z|zip)$/i, ARCHIVE_MAX = 512 << 20, PART = 8 << 20, PARALLEL = 6;
 const CHUNK = 4 << 20;        // pedaço dos arquivos sob demanda
 
-const params = new URLSearchParams(location.search);
+// aba isolada (núcleos com threads no site: retroarch/isolated.html + isolated.js) faz o papel do pai: window.r36sHost;
+// lá o jogo vem pelo BroadcastChannel (host.params), não pela URL
+const host = window.r36sHost || null;
+const params = new URLSearchParams(host && host.params ? host.params : location.search);
 const system = params.get("system") || "";
 let core = params.get("core") || "";
 const rom = params.get("rom") || "";
-// aba isolada (núcleos com threads no site: retroarch/isolated.html + isolated.js) faz o papel do pai: window.r36sHost
-const host = window.r36sHost || null;
 const embedded = window.parent !== window || !!host;
 const msg = document.getElementById("msg");
 const syncEl = document.getElementById("sync");

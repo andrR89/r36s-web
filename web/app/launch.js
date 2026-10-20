@@ -84,14 +84,15 @@ function iframeGame(r36s, focusBack, { system, core, rom }) {
 
 // Jogo numa aba isolada (retroarch/isolated.html, servida com COOP same-origin + COEP: threads/SharedArrayBuffer).
 // O COOP corta o window.opener: a conversa é pelo BroadcastChannel (protocolo em retroarch/isolated.js). Esta página
-// responde com o backend, a biblioteca, o índice (manifesto + eager.bin já baixados) e o token do Drive (pedido ao site,
-// site.token: só em memória); a aba avisa início/fim e manda "alive". Enquanto isso o seletor espera, com aviso.
+// responde com o jogo (sistema, núcleo, ROM), o backend, a biblioteca, o índice (manifesto + eager.bin já baixados) e o
+// token do Drive (pedido ao site, site.token: só em memória); a aba avisa início/fim e manda "alive". Enquanto isso o
+// seletor espera, com aviso. Na URL só vai o id da sessão: o nome do jogo ficaria no histórico e nos logs do Netlify.
 const CHANNEL = "r36s-isolated";   // o mesmo em retroarch/isolated.js
 const ALIVE_MS = 150000;   // aba em segundo plano tem timers estrangulados (até 1/min): folga grande
 function isolatedGame(r36s, site, focusBack, { system, core, rom }) {
   return new Promise(resolve => {
     const id = Math.random().toString(36).slice(2) + Date.now().toString(36);
-    const url = new URL("../retroarch/isolated.html?" + new URLSearchParams({ session: id, system, core, rom }), import.meta.url).href;
+    const url = new URL("../retroarch/isolated.html?" + new URLSearchParams({ session: id }), import.meta.url).href;
     const ch = new BroadcastChannel(CHANNEL);
     const game = { isolated: true, session: id, system, core, rom, started: false, opened: false, hello: false, t0: performance.now() };
     let done = false, seen = performance.now(), timer = 0;
@@ -118,7 +119,7 @@ function isolatedGame(r36s, site, focusBack, { system, core, rom }) {
       if (d.type === "hello") {
         game.hello = true;
         const io = r36s.io, drive = site && site.drive;
-        reply({ backend: r36s.backend, signedIn: !!drive, api: drive ? drive.api : null, library: site ? site.library : null,
+        reply({ system, core, rom, backend: r36s.backend, signedIn: !!drive, api: drive ? drive.api : null, library: site ? site.library : null,
           manifest: io ? io.manifest : null, eager: io ? io.eager : null,
           token: drive ? await token(false) : "", slots: window.r36sPads ? window.r36sPads.slots() : null });
       } else if (d.type === "token") reply({ token: await token(!!d.force) });

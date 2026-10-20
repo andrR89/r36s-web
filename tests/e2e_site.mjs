@@ -432,6 +432,7 @@ async function pspIsolated() {
   step("psp-aba", { ...iso, ...st, glit, notice, seedLog, renew });
   check(iso.coi === true && iso.sab === "function", "psp: aba isolada com crossOriginIsolated");
   check(iso.opener && !/tok-/.test(iso.url) && !st.inStorage, "psp: sem opener; token fora da URL e do storage");
+  check([...new URL(iso.url).searchParams.keys()].join() === "session", "psp: na URL da aba só o id da sessão (jogo pelo canal)");
   check(st.started && st.core === "ppsspp", "psp: ppsspp iniciou na aba isolada");
   // ROM acima do EAGER_MAX (48 MB): lida em pedaços pelo lazyFile -> io.readSync (XHR síncrono + ChaCha20 síncrono)
   check(st.romSize > 48 << 20 && st.lazy && st.lazy.requests > 0 && st.io && st.io.media > 0, "psp: ROM grande lida sob demanda (readSync)");
