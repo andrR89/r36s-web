@@ -14,8 +14,11 @@ const SYSTEMS = `<systemList>
 <system><name>psx</name><fullname>PlayStation</fullname><path>/roms/psx</path><extension>.cue .bin .m3u</extension></system>
 </systemList>`;
 const GAMELIST = `<gameList><game><path>./Donkey.sfc</path><name>Donkey Kong</name><image>./images/dk.png</image></game></gameList>`;
-const PNG = Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010806000000" +
-  "1f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082", "hex");
+// PNG de verdade (300x400 RGB, com ruído para não ficar minúsculo): o mkmanifest só gera miniatura de imagem válida
+const PNG = execFileSync("python3", ["-I", "-c",
+  ["import sys,io,random", "from PIL import Image", "random.seed(1)",
+   "im=Image.frombytes('RGB',(300,400),bytes(random.randrange(256) for _ in range(360000)))",
+   "b=io.BytesIO(); im.save(b,'PNG'); sys.stdout.buffer.write(b.getvalue())"].join("\n")]);
 
 function cartao() {
   const w = mkdtempSync(join(tmpdir(), "cifrar-")), card = join(w, "card");
@@ -74,11 +77,11 @@ test("cifrar -> indice -> ponteiro: nada em claro, tudo decifra", async () => {
   const g = library.games.find(x => x.rom === "/roms/snes/Donkey.sfc");
   assert.match(g.box || g.shot, /^[^/.]+\.[0-9a-f]{6}$/);                       // imagem: "<id>.<v6>"
   const s = library.systems.find(x => x.id === "snes");
-  if (g.thumb) {                                                                // PNG de 1 px: a miniatura pode existir
-    const pack = new Uint8Array(readFileSync(join(out, byId[s.capas.split(".")[0]])));
-    const rec = pack.subarray(g.thumb[0], g.thumb[0] + g.thumb[1]);
-    assert.ok((await C.decifrarRegistro(cat, rec)).length > 0);
-  }
+  assert.ok(g.thumb && s.capas, "miniatura e pacote de capas existem");
+  const pack = new Uint8Array(readFileSync(join(out, byId[s.capas.split(".")[0]])));
+  const rec = pack.subarray(g.thumb[0], g.thumb[0] + g.thumb[1]);
+  const webp = await C.decifrarRegistro(cat, rec);
+  assert.equal(Buffer.from(webp.subarray(0, 4)).toString("latin1"), "RIFF");   // WebP
 });
 
 test("cifrar de novo: só o que mudou; arquivo removido sai de out", async () => {
