@@ -1,0 +1,1 @@
+- web/vendor/noble-aes.js — @noble/ciphers 2.0.1 (MIT, Paul Miller), AES-GCM; licença em web/vendor/LICENSE-noble-ciphers
