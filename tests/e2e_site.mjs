@@ -1,20 +1,27 @@
-// node tests/e2e_site.mjs [url do r36s no hub] [saida] — site da Etapa 4 contra um mock local do Google Drive.
-//  1. home (1440 e 390 px), sem erro de console     2. login     3. os 4 estados da biblioteca (+ sem índice)
-//  4. seletor lê a biblioteca e as capas do mock do Drive, jogo (ROM do Drive) pela ficha, save PUT no Drive e GET na volta
-//  5. modo demonstração + 2 jogadores com controles simulados (navigator.getGamepads falso)   6. joystick de toque no jogo
-//  7. PSP (núcleo com threads) no modo Drive: aba isolada (retroarch/isolated.html, crossOriginIsolated) pelo
-//     BroadcastChannel, popup bloqueado -> botão, jogo desenha, save em árvore vai e volta do Drive, saída volta ao seletor.
-//     Precisa do cartão montado (ROM de PSP de lá numa biblioteca de teste); sem ele o passo é pulado.
-// E2E_ONLY=home,biblioteca,drive,demo,toque,psp roda só esses passos.
-// O login real do Google não dá para automatizar: o site roda com R36S_CONFIG {auth: "mock", api: <mock>}.
+// node tests/e2e_site.mjs [url do r36s no hub] [saida] — site contra a biblioteca CIFRADA num Drive simulado local
+// (tests/mock_drive.py, pasta plana de arquivos opacos) + o backend de chaves local (tests/mock_chaves.mjs).
+// O cartão falso e a cifra vêm do tests/cifrado_fixture.mjs (demo gbc/nes + um snes de mentira + PSP do cartão).
+//  1. home (1440 e 390 px), sem erro de console
+//  2. acesso: tok-shared vê a biblioteca; tok-own (só snes) vê gbc/nes apagados "Sem acesso a este sistema";
+//     tok-none pede acesso (o backend registra pendente); tok-both vê o pedido aguardando
+//  3. tok-shared: seletor com capas e miniaturas decifradas, ⬇ ROM pequena (blob = ROM do cartão), jogo (ROM do Drive)
+//     pela ficha, save PUT no Drive e GET na volta
+//  4. modo demonstração + 2 jogadores com controles simulados (navigator.getGamepads falso)   5. joystick de toque no jogo
+//  6. PSP (núcleo com threads): aba isolada (retroarch/isolated.html, crossOriginIsolated) pelo BroadcastChannel,
+//     popup bloqueado -> botão; a ROM passa do EAGER_MAX e é lida sob demanda (lazyFile -> io.readSync, XHR síncrono +
+//     ChaCha20 síncrono); jogo desenha, save em árvore vai e volta do Drive, saída volta ao seletor.
+//     Precisa do cartão montado (ROM de PSP de lá); sem ele o passo é pulado.
+//  7. varredura: nenhum nome de jogo/sistema do cartão falso nos nomes nem no conteúdo da pasta que "sobe"
+// E2E_ONLY=home,acesso,drive,demo,toque,psp,varredura roda só esses passos.
+// O login real do Google não dá para automatizar: o site roda com R36S_CONFIG {auth: "mock", api, funcoes}.
 // Teste com controles físicos e no celular de verdade fica com o andre (docs/deploy.md).
 import { chromium } from "/home/andre/Workspace/web-ports/tools/pw/node_modules/playwright-core/index.mjs";
-import { mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync, rmSync } from "node:fs";
-import { spawn, execFileSync } from "node:child_process";
-import { createServer } from "node:net";
+import { mkdirSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { cartao, montar, subir, PSP_GAME } from "./cifrado_fixture.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const url = (process.argv[2] ?? "http://localhost:8770/r36s/").replace(/\/?$/, "/");
@@ -25,40 +32,38 @@ const result = { steps: {}, errors: [] };
 const step = (k, v) => { result.steps[k] = v; console.log(k, JSON.stringify(v)); };
 const run = k => !process.env.E2E_ONLY || process.env.E2E_ONLY.split(",").includes(k);
 const check = (cond, why) => { if (!cond) { result.errors.push(why); console.log("FALHOU:", why); } return cond; };
+const md5 = b => createHash("md5").update(b).digest("hex");
 // vigia: ações do playwright (teclado, evaluate) não têm timeout e esperam para sempre se uma aba prende a thread
 // (PPSSPP sem GPU com a máquina carregada: travou 9 h). Falha com o último passo em vez de travar. E2E_TIMEOUT em s.
 setTimeout(() => {
   console.log("FALHOU: vigia — o teste passou de", process.env.E2E_TIMEOUT || 900, "s; último passo:", Object.keys(result.steps).at(-1));
-  for (const k of [() => mock.kill(), () => pspMock && pspMock.kill(), () => browser.close()]) try { k(); } catch {}
+  for (const k of [() => mocks.parar(), () => browser.close()]) try { k(); } catch {}
   setTimeout(() => process.exit(2), 3000);
 }, 1000 * (+process.env.E2E_TIMEOUT || 900)).unref();
 
-// ---------- mock do Drive: biblioteca = ROMs do demo, índice gerado com os IDs do mock
-const freePort = () => new Promise(r => { const s = createServer(); s.listen(0, "127.0.0.1", () => { const p = s.address().port; s.close(() => r(p)); }); });
-const work = join(out, "mock");
-mkdirSync(work, { recursive: true });
-const lib = join(ROOT, "web/site/demo/fs/roms");
-writeFileSync(join(work, "ls.json"), execFileSync("python3", ["-I", join(ROOT, "tests/mock_drive.py"), "--lsjson", lib]));
-execFileSync("python3", [join(ROOT, "data/mkmanifest.py"), join(ROOT, "web/site/demo/fs"), join(work, "index"), "--drive-ids", join(work, "ls.json")]);
-const mockPort = await freePort();
-const mock = spawn("python3", ["-I", join(ROOT, "tests/mock_drive.py"), String(mockPort), "--library", lib, "--index", join(work, "index")], { stdio: ["ignore", "pipe", "inherit"] });
-await new Promise(r => mock.stdout.once("data", r));
-const api = `http://127.0.0.1:${mockPort}`;
+// ---------- biblioteca cifrada: cartão falso -> arquivos opacos (Drive simulado) + ponteiro e chaves (backend local)
+const work = join(out, "mock"), card = join(work, "card");
+const { pspRom } = cartao(card, { psp: run("psp") });
+const fix = montar(work, card);
+const indice = JSON.parse(readFileSync(fix.indice, "utf8"));
+const claroLib = JSON.parse(gunzipSync(readFileSync(join(work, "claro/library.json.gz"))));
+var mocks = await subir(fix);
+const { api, funcoes } = mocks;
 const mockGet = p => fetch(api + p).then(r => r.json());
 
 const browser = await chromium.launch({ executablePath: "/usr/bin/chromium",
   args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required"] });
 const logs = [];
-async function ctx(opts = {}, token = "tok-shared", apiUrl = api) {
-  const c = await browser.newContext({ viewport: { width: 1280, height: 800 }, ...opts });
-  await c.addInitScript(([api, token]) => {
-    window.R36S_CONFIG = { api, auth: "mock", mockToken: token };
+async function ctx(opts = {}, token = "tok-shared") {
+  const c = await browser.newContext({ viewport: { width: 1280, height: 800 }, acceptDownloads: true, ...opts });
+  await c.addInitScript(([api, funcoes, token]) => {
+    window.R36S_CONFIG = { api, funcoes, auth: "mock", mockToken: token };
     const orig = HTMLCanvasElement.prototype.getContext;   // o teste lê pixels do canvas
     HTMLCanvasElement.prototype.getContext = function (type, attrs) {
       if (/webgl/.test(type)) attrs = Object.assign({}, attrs, { preserveDrawingBuffer: true });
       return orig.call(this, type, attrs);
     };
-  }, [apiUrl, token]);
+  }, [api, funcoes, token]);
   const p = await c.newPage();
   p.on("console", m => logs.push(`${m.type()}: ${m.text()}`));
   p.on("pageerror", e => logs.push("PAGEERROR " + e.message));
@@ -81,6 +86,13 @@ async function waitApp(p) {
   const f = appFrame(p);
   await f.waitForFunction(() => window.r36s && window.r36s.ready, null, { timeout: 120000 });
   return f;
+}
+// login (token falso) até a tela da biblioteca chegar ao estado esperado
+async function entrar(p, want) {
+  await p.goto(site + "#/entrar");
+  await p.click("#google-btn");
+  await p.waitForFunction(w => window.r36sApp.state === w, want, { timeout: 15000 }).catch(() => {});
+  return p.evaluate(() => ({ state: window.r36sApp.state, text: document.querySelector("#lib").innerText }));
 }
 const focusedPlay = app => app.evaluate(() => !!document.activeElement && document.activeElement.matches("#sheet .play"));
 const hold = async (p, k, ms = 150) => { await p.keyboard.down(k); await p.waitForTimeout(ms); await p.keyboard.up(k); };
@@ -105,62 +117,89 @@ try {
     await c.close();
   }
 
-  // ---------- 2/3. login + estados da biblioteca
-  const states = { "tok-shared": "shared", "tok-own": "own", "tok-both": "both", "tok-none": "none", "tok-noindex": "own" };
-  if (run("biblioteca")) for (const [tok, want] of Object.entries(states)) {
-    const { c, p } = await ctx({}, tok);
-    await p.goto(site + "#/entrar");
-    if (tok === "tok-shared") await p.screenshot({ path: `${out}/login.png` });
-    await p.click("#google-btn");
-    await p.waitForFunction(w => window.r36sApp.state === w, want, { timeout: 15000 }).catch(() => {});
-    const st = await p.evaluate(() => ({ state: window.r36sApp.state, text: document.querySelector("#lib").innerText, user: document.querySelector("#user-name").textContent,
-      play: [...document.querySelectorAll(".play-btn")].map(b => !b.disabled) }));
-    await p.waitForTimeout(300);
-    await p.screenshot({ path: `${out}/biblioteca-${tok.slice(4)}.png` });
-    step(`biblioteca-${tok}`, st);
-    check(st.state === want, `${tok}: estado ${st.state}, esperado ${want}`);
-    if (tok === "tok-shared") check(/Biblioteca de André/.test(st.text) && /2 sistemas · 3 jogos/.test(st.text), "compartilhada: título/contagem");
-    if (tok === "tok-noindex") check(st.play[0] === false && /sem índice/.test(st.text), "sem índice: Jogar desligado");
-    if (tok === "tok-both") check(/Qual biblioteca/.test(st.text), "as duas: escolha");
-    if (tok === "tok-none") {
-      check(/Modo demonstração/.test(st.text) && /Pedir acesso/.test(st.text), "nenhuma: opções");
-      await p.click("text=Criar pasta no meu Drive");   // cria R36S no Drive (mock) -> vira "própria" sem índice
-      await p.waitForFunction(() => window.r36sApp.state === "own", null, { timeout: 10000 }).catch(() => {});
-      check(await p.evaluate(() => window.r36sApp.state) === "own", "nenhuma: criar pasta -> própria");
+  // ---------- 2. acesso (backend de chaves): com acesso, acesso parcial, sem acesso + pedido, pedido pendente
+  if (run("acesso")) {
+    {
+      const { c, p } = await ctx({}, "tok-shared");
+      const st = await entrar(p, "shared");
+      await p.screenshot({ path: `${out}/biblioteca-shared.png` });
+      step("acesso-shared", st);
+      const conta = `${indice.info.systems} sistemas · ${indice.info.games} jogos`;
+      check(st.state === "shared" && /Biblioteca de André/.test(st.text) && st.text.includes(conta), `tok-shared: biblioteca com "${conta}"`);
+      await c.close();
     }
-    if (tok === "tok-both") {   // lembrar a escolha: recarrega e já vem a escolhida
-      await p.evaluate(() => { localStorage.setItem("r36s-library", window.r36sApp.libraries.own[0].id); });
-      await p.evaluate(() => { window.r36sApp.libraries = null; location.hash = "#/"; });
-      await p.evaluate(() => { location.hash = "#/biblioteca"; });
-      await p.waitForFunction(() => window.r36sApp.state === "both-remembered", null, { timeout: 10000 }).catch(() => {});
-      check(await p.evaluate(() => window.r36sApp.state) === "both-remembered", "as duas: lembrar a escolha");
+    {
+      // tok-own: só a chave do snes -> gbc/nes apagados, com o motivo na ficha
+      const { c, p } = await ctx({}, "tok-own");
+      const st = await entrar(p, "shared");
+      await p.click(".play-btn");
+      const app = await waitApp(p);
+      const off = await app.evaluate(() => Object.fromEntries([...document.querySelectorAll("[data-sys]")].map(r =>
+        [r.dataset.sys, [...r.querySelectorAll(".cover")].map(x => x.classList.contains("off"))])));
+      await app.click('[data-sys="gbc"] .cover');
+      await app.waitForFunction(() => document.querySelector("#sheet .note"), null, { timeout: 10000 }).catch(() => {});
+      const ficha = await app.evaluate(() => ({ note: document.querySelector("#sheet .note")?.textContent, play: !!document.querySelector("#sheet .play") }));
+      await p.screenshot({ path: `${out}/acesso-parcial.png` });
+      step("acesso-own", { state: st.state, off, ficha });
+      check(st.state === "shared", "tok-own: entra na biblioteca");
+      check(off.snes && off.snes.length && off.snes.every(x => !x), "tok-own: snes jogável");
+      check(["gbc", "nes"].every(s => off[s] && off[s].length && off[s].every(x => x)), "tok-own: gbc/nes apagados");
+      check(/Sem acesso a este sistema/.test(ficha.note || "") && !ficha.play, "tok-own: ficha diz 'Sem acesso a este sistema', sem Jogar");
+      await c.close();
     }
-    await c.close();
+    {
+      // tok-none: sem acesso -> formulário -> pedido registrado no backend
+      const { c, p } = await ctx({}, "tok-none");
+      const st = await entrar(p, "sem-acesso");
+      await p.fill("#pedido-nome", "Edu Teste");
+      await p.fill("#pedido-msg", "teste e2e");
+      await p.screenshot({ path: `${out}/sem-acesso.png` });
+      await p.click("form.pedido button[type=submit]");
+      await p.waitForFunction(() => window.r36sApp.state === "sem-acesso-enviado", null, { timeout: 10000 }).catch(() => {});
+      const depois = await p.evaluate(() => ({ state: window.r36sApp.state, text: document.querySelector("#lib").innerText }));
+      const pedidos = await fetch(funcoes + "/_mock/pedidos").then(r => r.json());
+      step("acesso-none", { antes: st, depois, pedidos });
+      check(st.state === "sem-acesso" && /Sem acesso à biblioteca/.test(st.text), "tok-none: tela sem acesso");
+      check(depois.state === "sem-acesso-enviado" && /Pedido enviado/.test(depois.text), "tok-none: pedido enviado");
+      check(pedidos["tok-none"] === "pendente", "tok-none: backend registrou o pedido pendente");
+      await c.close();
+    }
+    {
+      const { c, p } = await ctx({}, "tok-both");
+      const st = await entrar(p, "sem-acesso-pendente");
+      step("acesso-pendente", st);
+      check(st.state === "sem-acesso-pendente" && /aguardando aprovação/.test(st.text), "tok-both: pedido aguardando");
+      await c.close();
+    }
   }
 
-  // ---------- 4. seletor do Drive (mock), jogo, saves
+  // ---------- 3. seletor do Drive cifrado, ⬇ ROM, jogo, saves
   if (run("drive")) {
     await fetch(api + "/_mock/reset", { method: "POST" });
     const { c, p } = await ctx({}, "tok-shared");
-    await p.goto(site + "#/entrar");
-    await p.click("#google-btn");
-    await p.waitForFunction(() => window.r36sApp.state === "shared");
+    await entrar(p, "shared");
     await p.click(".play-btn");
     const app = await waitApp(p);
     const panel = await app.evaluate(() => !!(window.r36s.controls && window.r36s.controls.panel));
     const covers = await app.evaluate(() => document.querySelectorAll(".cover").length);
-    // a biblioteca do demo pode vir sem capas/prints (gamelist sem <image>): aí as capas são o nome (placeholder)
-    const art = JSON.parse(gunzipSync(readFileSync(join(work, "index/library.json.gz")))).games.filter(g => g.box || g.shot).length;
-    if (art) await app.waitForFunction(() => document.querySelector(".cover img[src]"), null, { timeout: 30000 }).catch(() => {});
-    const imgs = await app.evaluate(() => document.querySelectorAll(".cover img[src]").length);
+    // capas: miniaturas (recortes do pacote cifrado) decifradas no navegador; só conta imagem que decodificou
+    const art = claroLib.games.filter(g => g.box || g.shot).length;
+    if (art) await app.waitForFunction(() => [...document.querySelectorAll(".cover img[src]")].some(i => i.complete && i.naturalWidth), null, { timeout: 30000 }).catch(() => {});
+    const imgs = await app.evaluate(() => [...document.querySelectorAll(".cover img[src]")].filter(i => i.complete && i.naturalWidth).length);
     await p.screenshot({ path: `${out}/seletor-drive.png` });
     const log1 = await mockGet("/_mock/log");
     const media = log1.filter(l => l.path.startsWith("/drive/v3/files/") && l.user === "tok-shared");
     step("seletor-drive", { panel, covers, art, imgs, mediaRequests: media.length, io: await app.evaluate(() => window.r36s.io.stats) });
     check(!panel, "painel de comandos não abre sozinho");
-    check(covers > 0 && (imgs > 0 || !art), "seletor mostrou capas vindas do Drive");
-    // gbc -> µCity: capa -> ficha -> Jogar
+    check(covers > 0 && art > 0 && imgs > 0, "seletor mostrou capas decifradas do Drive");
+    // gbc -> µCity: capa -> ficha -> ⬇ ROM (blob decifrado = ROM do cartão) -> Jogar
     await app.click('[data-sys="gbc"] .cover');
+    const rom = await app.evaluate(() => document.querySelector('[data-sys="gbc"] .cover').dataset.rom);
+    const [dl] = await Promise.all([p.waitForEvent("download", { timeout: 30000 }), app.click("#sheet .rom")]);
+    const got = md5(readFileSync(await dl.path())), want = md5(readFileSync(join(card, rom)));
+    const romMsg = await app.evaluate(() => document.querySelector("#sheet .msg, #sheet [role=status]")?.textContent || "");
+    step("rom-drive", { rom, name: dl.suggestedFilename(), got, want, romMsg });
+    check(got === want && dl.suggestedFilename() === rom.slice(rom.lastIndexOf("/") + 1), "⬇ ROM: arquivo salvo = ROM do cartão, nome original");
     await app.click("#sheet .play");
     await app.waitForFunction(() => window.r36s.game && window.r36s.game.started, null, { timeout: 60000 }).catch(() => {});
     const game = await app.evaluate(() => window.r36s.game && { rom: window.r36s.game.rom, started: window.r36s.game.started });
@@ -187,9 +226,9 @@ try {
     await app.click("#sheet .play");   // a ficha continua aberta
     await app.waitForFunction(() => window.r36s.game && window.r36s.game.started, null, { timeout: 60000 }).catch(() => {});
     await p.waitForTimeout(2000);
-    const got = logs.slice(n0).find(l => /\[play\] save: \d+ bytes/.test(l));
-    step("save-get", { got });
-    check(!!got, "save voltou do Drive na segunda abertura");
+    const got2 = logs.slice(n0).find(l => /\[play\] save: \d+ bytes/.test(l));
+    step("save-get", { got: got2 });
+    check(!!got2, "save voltou do Drive na segunda abertura");
     await selectStart(p);
     await app.waitForFunction(() => !window.r36s.game, null, { timeout: 20000 }).catch(() => {});
     const saves2 = await mockGet("/_mock/saves");
@@ -307,8 +346,28 @@ try {
     await c.close();
   }
 
-  // ---------- 7. PSP no modo Drive: aba isolada
+  // ---------- 6. PSP: aba isolada, ROM sob demanda
   if (run("psp")) await pspIsolated();
+
+  // ---------- 7. varredura: nada do cartão em claro no que sobe (só textos de 5+ letras: 3 letras aparecem por acaso)
+  if (run("varredura")) {
+    const nomes = new Set();
+    for (const s of claroLib.systems) for (const t of [s.id, s.name]) if (t && t.length >= 5) nomes.add(t);
+    for (const g of claroLib.games) {
+      const base = g.rom.slice(g.rom.lastIndexOf("/") + 1).replace(/\.[^.]+$/, "");
+      for (const t of [g.name, base]) if (t && t.length >= 5) nomes.add(t);
+      for (const w of String(g.name || "").split(/[^\p{L}\p{N}]+/u)) if (w.length >= 5) nomes.add(w);
+    }
+    const achados = [];
+    const arquivos = readdirSync(fix.dados);
+    for (const f of arquivos) {
+      const b = readFileSync(join(fix.dados, f)).toString("latin1");
+      for (const n of nomes) if (f.includes(n) || b.includes(n)) achados.push(`${n} em ${f}`);
+    }
+    step("varredura", { arquivos: arquivos.length, nomes: nomes.size, achados });
+    check(arquivos.length > 0 && arquivos.every(f => /^[0-9a-f]{24}$/.test(f)), "varredura: só nomes opacos");
+    check(!achados.length, "varredura: nome do cartão em claro na pasta que sobe");
+  }
 } catch (e) {
   result.errors.push("exceção: " + (e.stack || e));
   console.log(e);
@@ -318,32 +377,14 @@ try {
   result.fatal = fatal;
   console.log(JSON.stringify({ errors: result.errors, fatal }, null, 1));
   await browser.close();
-  mock.kill();
-  if (pspMock) pspMock.kill();
+  mocks.parar();
   process.exit(result.errors.length || fatal.length ? 1 : 0);
 }
 
-// biblioteca de teste = demo + um jogo de PSP do cartão (symlink; nada é copiado), es_systems com o psp, outro mock
-var pspMock = null;
+// PSP do cartão (cópia com zeros no fim, acima do EAGER_MAX: ver tests/cifrado_fixture.mjs) na mesma biblioteca cifrada
 async function pspIsolated() {
-  const CARD = "/run/media/andre/EASYROMS/psp", GAME = "Circles, Circles, Circles (USA).cso";
-  if (!existsSync(`${CARD}/${GAME}`)) { step("psp", { skipped: "cartão não montado (" + CARD + ")" }); return; }
-  const demo = join(ROOT, "web/site/demo/fs"), w = join(out, "mock-psp"), fsr = join(w, "fs");
-  rmSync(w, { recursive: true, force: true });
-  mkdirSync(join(fsr, "roms/psp"), { recursive: true });
-  mkdirSync(join(fsr, "etc/emulationstation"), { recursive: true });
-  for (const d of ["home", "usr"]) symlinkSync(join(demo, d), join(fsr, d));
-  for (const d of ["gbc", "nes"]) symlinkSync(join(demo, "roms", d), join(fsr, "roms", d));
-  symlinkSync(`${CARD}/${GAME}`, join(fsr, "roms/psp", GAME));
-  writeFileSync(join(fsr, "etc/emulationstation/es_systems.cfg"), readFileSync(join(demo, "etc/emulationstation/es_systems.cfg"), "utf8")
-    .replace("</systemList>", `\t<system>\n\t\t<name>psp</name>\n\t\t<fullname>PSP</fullname>\n\t\t<path>/roms/psp/</path>\n\t\t<extension>.iso .ISO .cso .CSO</extension>\n` +
-      `\t\t<command>/usr/local/bin/ppsspp.sh %ROM%</command>\n\t\t<platform>psp</platform>\n\t\t<theme>gbc</theme>\n\t</system>\n</systemList>`));
-  writeFileSync(join(w, "ls.json"), execFileSync("python3", ["-I", join(ROOT, "tests/mock_drive.py"), "--lsjson", join(fsr, "roms")]));
-  execFileSync("python3", [join(ROOT, "data/mkmanifest.py"), fsr, join(w, "index"), "--drive-ids", join(w, "ls.json")]);
-  const port = await freePort();
-  pspMock = spawn("python3", ["-I", join(ROOT, "tests/mock_drive.py"), String(port), "--library", join(fsr, "roms"), "--index", join(w, "index")], { stdio: ["ignore", "pipe", "inherit"] });
-  await new Promise(r => pspMock.stdout.once("data", r));
-  const papi = `http://127.0.0.1:${port}`;
+  if (!pspRom) { step("psp", { skipped: "cartão não montado" }); return; }
+  const GAME = PSP_GAME, papi = api;
   const saveName = GAME.replace(/\.cso$/, ".savedata");
   const savesOf = async () => (await fetch(papi + "/_mock/saves").then(r => r.json())).find(s => s.user === "tok-shared" && s.name === saveName);
   // save semente no Drive (blob em árvore do play.js: "R36T1\n" + {p,n} + bytes por arquivo)
@@ -351,10 +392,8 @@ async function pspIsolated() {
   const blob = Buffer.concat([enc.encode("R36T1\n"), enc.encode(JSON.stringify({ p: "R36STEST0/SEED.BIN", n: seedFile.length }) + "\n"), seedFile]);
   await fetch(`${papi}/_mock/seed?` + new URLSearchParams({ user: "tok-shared", system: "psp", name: saveName }), { method: "POST", body: blob });
 
-  const { c, p } = await ctx({}, "tok-shared", papi);
-  await p.goto(site + "#/entrar");
-  await p.click("#google-btn");
-  await p.waitForFunction(() => window.r36sApp.state === "shared");
+  const { c, p } = await ctx({}, "tok-shared");
+  await entrar(p, "shared");
   await p.click(".play-btn");
   const es = await waitApp(p);
   check(await es.evaluate(() => !self.crossOriginIsolated), "psp: página do seletor no site não é crossOriginIsolated (premissa)");
@@ -384,6 +423,7 @@ async function pspIsolated() {
   await g.screenshot({ path: `${out}/psp-aba.png` });
   await p.screenshot({ path: `${out}/psp-seletor-aviso.png` });
   const st = await g.evaluate(() => ({ started: !!(window.r36sPlay && window.r36sPlay.started), core: window.r36sPlay && window.r36sPlay.core, lazy: window.r36sPlay && window.r36sPlay.lazy,
+    romSize: window.r36sPlay && window.r36sPlay.romSize,
     io: window.r36sIsolated.io && window.r36sIsolated.io.stats, inStorage: JSON.stringify({ ...localStorage, ...sessionStorage }).includes("tok-") }));
   const seedLog = glogs.find(l => /save em árvore: \d+ arquivos/.test(l));
   // renovação do token pelo canal (o drive.js faz isso no 401): a aba do site responde
@@ -393,6 +433,8 @@ async function pspIsolated() {
   check(iso.coi === true && iso.sab === "function", "psp: aba isolada com crossOriginIsolated");
   check(iso.opener && !/tok-/.test(iso.url) && !st.inStorage, "psp: sem opener; token fora da URL e do storage");
   check(st.started && st.core === "ppsspp", "psp: ppsspp iniciou na aba isolada");
+  // ROM acima do EAGER_MAX (48 MB): lida em pedaços pelo lazyFile -> io.readSync (XHR síncrono + ChaCha20 síncrono)
+  check(st.romSize > 48 << 20 && st.lazy && st.lazy.requests > 0 && st.io && st.io.media > 0, "psp: ROM grande lida sob demanda (readSync)");
   check(/PSP abre numa aba própria/.test(notice), "psp: aviso na aba do seletor enquanto joga");
   check(glit > 0.02, "psp: jogo desenhou");
   check(/save em árvore: 1 arquivos/.test(seedLog || ""), "psp: save semente veio do Drive");

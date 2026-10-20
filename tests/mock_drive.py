@@ -11,6 +11,8 @@ Usuários (pelo token Bearer), um por estado da tela de biblioteca:
   tok-shared — a pasta R36S do andre compartilhada com ele      tok-own  — uma pasta R36S própria
   tok-both   — as duas                                          tok-none — nenhuma
   tok-noindex — própria, sem R36S/.web (índice não gerado)
+Biblioteca cifrada (tests/cifrado_fixture.mjs): --library é a pasta plana de arquivos opacos, sem --index; qualquer
+tok-* lê os arquivos pelo ID (pasta compartilhada por link) — quem abre o quê é decidido pelas chaves (mock_chaves.mjs).
 Endpoints: GET /drive/v3/about, GET /drive/v3/files?q=..., GET /drive/v3/files/<id>[?alt=media] (Range),
 POST /drive/v3/files (pasta), POST /upload/drive/v3/files?uploadType=multipart, PATCH /upload/drive/v3/files/<id>.
 Inspeção: GET /_mock/log (requisições), GET /_mock/saves (saves por usuário), POST /_mock/reset.
@@ -97,10 +99,12 @@ class Store:
                     if os.path.exists(p):
                         self.add(fid("web", n), n, "application/octet-stream", [web], "andre", real=p)
 
-    def content(self, f):
+    def content(self, f, a=0, b=None):
         if f["data"] is not None:
-            return f["data"]
-        return open(f["real"], "rb").read()
+            return f["data"][a:b]
+        with open(f["real"], "rb") as fh:
+            fh.seek(a)
+            return fh.read() if b is None else fh.read(b - a)
 
     def size(self, f):
         return len(f["data"]) if f["data"] is not None else (os.path.getsize(f["real"]) if f["real"] else 0)
@@ -257,12 +261,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.reply(404, {"error": {"code": 404, "message": "File not found"}})
             if qs.get("alt") != "media":
                 return self.reply(200, s.meta(f, tok))
-            data = s.content(f)
             rng = self.headers.get("Range")
             if rng and (mm := re.fullmatch(r"bytes=(\d+)-(\d*)", rng)):
-                a = int(mm.group(1)); b = min(int(mm.group(2)) if mm.group(2) else len(data) - 1, len(data) - 1)
-                return self.reply(206, data[a:b + 1], "application/octet-stream", {"Content-Range": f"bytes {a}-{b}/{len(data)}"})
-            return self.reply(200, data, "application/octet-stream")
+                # só o trecho pedido sai do disco: a ROM grande (PSP sob demanda) não vai inteira para a memória a cada pedaço
+                n = s.size(f)
+                a = int(mm.group(1)); b = min(int(mm.group(2)) if mm.group(2) else n - 1, n - 1)
+                return self.reply(206, s.content(f, a, b + 1), "application/octet-stream", {"Content-Range": f"bytes {a}-{b}/{n}"})
+            return self.reply(200, s.content(f), "application/octet-stream")
         return self.reply(404, {"error": {"code": 404, "message": "rota não existe no mock"}})
 
     do_GET = do_POST = do_PATCH = do_HEAD = lambda self: self.route()

@@ -3,6 +3,11 @@
 // (escopo drive, só leitura aqui — não abre jogo, não grava save). O token fica só no navegador do teste, nunca no log.
 // Saída: tempo até o seletor pronto (readyMs dele e do teste) e até as primeiras capas do Drive aparecerem, quantos
 // pedidos ao Drive e quanto tempo levaram; depois desce as fileiras com S (como o controle) e mede capas e pedidos.
+// ATENÇÃO (biblioteca cifrada, 2026-10-20): o índice e as chaves agora vêm do backend da biblioteca (função r36s do
+// Supabase h-games-web), não de pastas do Drive. Este teste só volta a valer depois da Tarefa 10 do plano
+// docs/superpowers/plans/2026-10-20-acesso-cifrado.md (biblioteca cifrada no Drive, índice publicado, função no ar) e
+// com uma conta aprovada lá; o token do rclone sozinho não basta (o backend recusa) e ainda costuma dar 403 de cota no
+// Drive. Não rodar antes disso; o ponta a ponta local é o tests/e2e_site.mjs (Drive simulado + backend local).
 import { chromium } from "/home/andre/Workspace/web-ports/tools/pw/node_modules/playwright-core/index.mjs";
 import { execFileSync, execSync } from "node:child_process";
 const rssBy = () => execSync(`ps -eo rss,cmd | grep -E 'chromium' | grep -v grep | sed -E 's/.*--type=([a-z-]+).*/\\1/;t;s/.*/browser/' | sort | uniq -c | head -0; ps -eo rss,args | grep chromium | grep -v grep | awk '{t="browser"; for(i=2;i<=NF;i++) if ($i ~ /^--type=/) t=substr($i,8); s[t]+=$1} END {for (k in s) printf "%s=%dMB ", k, s[k]/1024}'`).toString().trim();
