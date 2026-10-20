@@ -38,6 +38,10 @@ errados (não lança).
   `publicar.sh` (exceto nos passos da Tarefa 10, que só o controlador executa, cada um com ok do andre).
 - O cartão (`/run/media/andre/EASYROMS`, `ROOTFS`) é **só leitura**. Testes usam cartões falsos em diretório temporário.
 - Navegador e builds: `systemd-run --user --scope -q -p MemoryMax=12G <comando>`.
+- **Testes Node também, com teto menor:** `systemd-run --user --scope -q -p MemoryMax=4G -p MemorySwapMax=0 timeout 600
+  node ...`. Em 2026-10-20 um `assert.deepEqual` entre dois arrays de MBs diferentes (fase vermelha do TDD) fez o Node
+  montar uma mensagem de diff de 24 GB e o oomd matou o Chrome do andre. Comparar bytes grandes só com o `iguais(a, b)`
+  dos testes (Buffer.equals), nunca `deepEqual`/`equal` de arrays ou hex de MBs.
 - No fim de cada tarefa que roda o player: `md5sum` do save do DK3
   (`saves/snes/Donkey Kong Country 3 - Dixie Kong's Double Trouble! (USA) (PT-BR).srm`) = `42a492ce4260a522416a75be0ebd353e`
   e nenhum save novo em `saves/` (apagar os criados pelos testes).

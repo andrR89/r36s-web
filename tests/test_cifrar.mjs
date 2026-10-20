@@ -1,6 +1,8 @@
 // node --test tests/test_cifrar.mjs — data/cifrar.mjs num cartão falso
 import { test } from "node:test";
 import assert from "node:assert/strict";
+// compara bytes sem o diff do assert: com MBs diferentes o Node monta uma mensagem de dezenas de GB (já derrubou a máquina)
+const iguais = (a, b, msg = "bytes") => assert.ok(Buffer.from(a.buffer || a, a.byteOffset || 0, a.length).equals(Buffer.from(b.buffer || b, b.byteOffset || 0, b.length)), `${msg}: ${a.length} x ${b.length} bytes, conteúdo diferente`);
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -71,7 +73,7 @@ test("cifrar -> indice -> ponteiro: nada em claro, tudo decifra", async () => {
   const library = JSON.parse(gunzipSync(await abre(ptr.library, cat)).toString());
   const rom = manifest.files["/roms/snes/Donkey.sfc"];
   assert.ok(rom.id && rom.v && rom.size === 3 * C.BLOCO + 7);
-  assert.deepEqual(await C.decifrarArquivo(snes, new Uint8Array(readFileSync(join(out, byId[rom.id])))), new Uint8Array(3 * C.BLOCO + 7).fill(1));
+  iguais(await C.decifrarArquivo(snes, new Uint8Array(readFileSync(join(out, byId[rom.id])))), new Uint8Array(3 * C.BLOCO + 7).fill(1), "ROM");
   assert.ok((manifest.files["/roms/psx/Disco.bin"] || manifest.extra["/roms/psx/Disco.bin"])?.id);   // faixa citada pelo .cue
   assert.ok((manifest.files["/roms/psx/Disco.sbi"] || manifest.extra["/roms/psx/Disco.sbi"])?.id);   // apoio no topo da pasta: lazy em files
   const g = library.games.find(x => x.rom === "/roms/snes/Donkey.sfc");

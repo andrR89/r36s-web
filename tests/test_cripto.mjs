@@ -1,6 +1,8 @@
 // node --test tests/test_cripto.mjs — formato cifrado (spec 2026-10-20-acesso-cifrado)
 import { test } from "node:test";
 import assert from "node:assert/strict";
+// compara bytes sem o diff do assert: com MBs diferentes o Node monta uma mensagem de dezenas de GB (já derrubou a máquina)
+const iguais = (a, b, msg = "bytes") => assert.ok(Buffer.from(a.buffer || a, a.byteOffset || 0, a.length).equals(Buffer.from(b.buffer || b, b.byteOffset || 0, b.length)), `${msg}: ${a.length} x ${b.length} bytes, conteúdo diferente`);
 import * as C from "../web/cripto.js";
 
 const hex = u => Buffer.from(u).toString("hex");
@@ -39,15 +41,15 @@ test("arquivo: ida e volta, determinístico, qualquer intervalo, síncrono == as
     const texto = aleatorio(size);
     const cif = await C.cifrarArquivo(k, texto);
     assert.equal(cif.length, C.tamanhoCifrado(size));
-    assert.equal(hex(await C.cifrarArquivo(k, texto)), hex(cif));          // mesmo conteúdo -> mesmo arquivo
-    assert.equal(hex(await C.decifrarArquivo(k, cif)), hex(texto));
+    iguais(await C.cifrarArquivo(k, texto), cif, "determinístico");          // mesmo conteúdo -> mesmo arquivo
+    iguais(await C.decifrarArquivo(k, cif), texto, "ida e volta");
     if (!size) continue;
     for (const [de, ate] of [[0, size - 1], [0, 0], [size - 1, size - 1], [Math.floor(size / 3), Math.floor(2 * size / 3)]]) {
       const f = C.faixa(de, ate, size);
       const pedaco = cif.subarray(f.cDe, f.cAte + 1);
-      const esperado = hex(texto.subarray(de, ate + 1));
-      assert.equal(hex(await C.decifrarIntervalo(k, pedaco, de, ate, size)), esperado);
-      assert.equal(hex(C.decifrarIntervaloSync(k, pedaco, de, ate, size)), esperado);
+      const esperado = texto.subarray(de, ate + 1);
+      iguais(await C.decifrarIntervalo(k, pedaco, de, ate, size), esperado);
+      iguais(C.decifrarIntervaloSync(k, pedaco, de, ate, size), esperado);
     }
   }
 });
@@ -67,10 +69,10 @@ test("AAD: bloco trocado, cortado ou com outra chave falha", async () => {
 test("síncrono == assíncrono num bloco de índice > 0", async () => {
   const k = await C.derivar(mestra, "sistema:snes"), size = 3 * C.BLOCO + 7, texto = aleatorio(size), cif = await C.cifrarArquivo(k, texto);
   const de = C.BLOCO + 100, ate = 2 * C.BLOCO + 50, f = C.faixa(de, ate, size);
-  const pedaco = cif.subarray(f.cDe, f.cAte + 1), esperado = hex(texto.subarray(de, ate + 1));
+  const pedaco = cif.subarray(f.cDe, f.cAte + 1), esperado = texto.subarray(de, ate + 1);
   assert.equal(f.i, 1);
-  assert.equal(hex(C.decifrarIntervaloSync(k, pedaco, de, ate, size)), esperado);
-  assert.equal(hex(await C.decifrarIntervalo(k, pedaco, de, ate, size)), esperado);
+  iguais(C.decifrarIntervaloSync(k, pedaco, de, ate, size), esperado);
+  iguais(await C.decifrarIntervalo(k, pedaco, de, ate, size), esperado);
 });
 
 test("registro de miniatura", async () => {
