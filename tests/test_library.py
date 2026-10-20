@@ -19,6 +19,7 @@ GAMELIST = """<gameList>
 <releasedate>19961122T000000</releasedate><players>1-2</players><genre>Plataforma</genre>
 <image>./images/DKC3-image.png</image><thumbnail>./images/DKC3-thumb.png</thumbnail><marquee>./images/DKC3-marquee.png</marquee></game>
 <game><path>./Apagado.sfc</path><name>Não existe mais</name></game>
+<game><path>./Ação Total.7z</path><image>./images/acao.png</image></game>
 </gameList>"""
 CORES = {"systems": {"snes": {"core": "snes9x", "fullname": "Super NES", "note": "", "order": 2},
                      "psx": {"core": "pcsx_rearmed", "fullname": "PlayStation", "note": "", "order": 1},
@@ -46,6 +47,8 @@ class Library(unittest.TestCase):
         if not os.path.exists(os.path.join(src, "roms/snes/images/DKC3-thumb.png")):
             touch(src, "/roms/snes/images/DKC3-image.png", png(640, 480) if real_png else b"PNG")
             touch(src, "/roms/snes/images/DKC3-thumb.png", png(600, 800, "RGBA") if real_png else b"PNG")
+            if real_png:
+                touch(src, "/roms/snes/images/acao.png", png(320, 240))
         if marquee:
             touch(src, "/roms/snes/images/DKC3-marquee.png", b"PNG")
         touch(src, "/roms/psx/Disco (USA).cue", b'FILE "Disco (USA).bin" BINARY\n')
@@ -61,7 +64,8 @@ class Library(unittest.TestCase):
             lsj = os.path.join(out, "ls.json"); open(lsj, "wb").write(ls)
             ids = mkmanifest.read_lsjson(lsj)
             ids.update(extra_ids or {})
-        mkmanifest.build(src, out, ids, cores, thumbs=os.path.join(out, "capas") if thumbs else None)
+        self.cache = os.path.join(out, ".capas-cache")
+        mkmanifest.build(src, out, ids, cores, thumbs=self.cache if thumbs else None)
         self.assertFalse(os.path.exists(os.path.join(out, "library.json")))   # só o .gz
         with gzip.open(os.path.join(out, "library.json.gz"), "rt", encoding="utf-8") as f:
             return json.load(f), ids
@@ -139,44 +143,77 @@ class Library(unittest.TestCase):
             self.assertNotIn("logo", g)
 
 DK_THUMB = "snes/" + hashlib.sha1(b"/roms/snes/images/DKC3-thumb.png").hexdigest()[:16] + ".webp"
+ACAO_THUMB = "snes/" + hashlib.sha1("/roms/snes/images/acao.png".encode()).hexdigest()[:16] + ".webp"
 
 class Thumbs(unittest.TestCase):
     make = Library.make
 
+    def games(self, lib):
+        return {g["name"]: g for g in lib["games"]}
+
+    def pack(self):
+        return open(os.path.join(self.out, "capas", "snes.bin"), "rb").read()
+
     def test_no_thumbs_option_no_thumb_key(self):
         lib, _ = self.make(real_png=True)
         self.assertFalse([g for g in lib["games"] if "thumb" in g])
+        self.assertFalse([s for s in lib["systems"] if "capas" in s])
         self.assertFalse(os.path.exists(os.path.join(self.out, "capas")))
 
-    def test_hub_thumb_webp_300_wide(self):
+    def test_hub_pack_per_system(self):
         lib, _ = self.make(real_png=True, thumbs=True)
-        dk = next(g for g in lib["games"] if g["name"] == "Donkey Kong Country 3")
-        self.assertEqual(dk["thumb"], "@capas/" + DK_THUMB)   # relativo à pasta do índice
-        self.assertEqual(dk["box"], "/roms/snes/images/DKC3-thumb.png")   # a original continua (ficha)
-        p = os.path.join(self.out, "capas", DK_THUMB)
-        with Image.open(p) as im:
+        snes = next(s for s in lib["systems"] if s["id"] == "snes")
+        pack = self.pack()
+        # "@" = relativo à pasta do índice; "?<versão>" = sha1 do pacote (o cache do navegador não serve recorte velho)
+        self.assertEqual(snes["capas"], "@capas/snes.bin?" + hashlib.sha1(pack).hexdigest()[:8])
+        self.assertFalse([s for s in lib["systems"] if s["id"] != "snes" and "capas" in s])   # sem imagens: sem pacote
+        self.assertEqual(sorted(os.listdir(os.path.join(self.out, "capas"))), ["snes.bin"])
+        g = self.games(lib)
+        dk, acao = g["Donkey Kong Country 3"], g["Ação Total"]
+        # ordem do library (Ação Total < Donkey Kong): pacote = concatenação das miniaturas do cache
+        self.assertEqual(acao["thumb"], [0, os.path.getsize(os.path.join(self.cache, ACAO_THUMB))])
+        self.assertEqual(dk["thumb"][0], acao["thumb"][1])
+        self.assertEqual(len(pack), dk["thumb"][0] + dk["thumb"][1])
+        for game, name in ((dk, DK_THUMB), (acao, ACAO_THUMB)):
+            off, n = game["thumb"]
+            self.assertEqual(pack[off:off + n], open(os.path.join(self.cache, name), "rb").read())
+        with Image.open(io.BytesIO(pack[dk["thumb"][0]:])) as im:
             self.assertEqual((im.format, im.size, im.mode), ("WEBP", (300, 400), "RGBA"))   # box (600x800), não shot
             self.assertNotIn("exif", im.info)
-        others = [g for g in lib["games"] if g["name"] != "Donkey Kong Country 3"]
-        self.assertFalse([g for g in others if "thumb" in g])   # sem imagem: sem miniatura
+        self.assertEqual(dk["box"], "/roms/snes/images/DKC3-thumb.png")   # a original continua (ficha)
+        self.assertFalse([x for x in lib["games"] if x["s"] != "snes" and "thumb" in x])
+
+    def test_pack_deterministic(self):
+        lib1, _ = self.make(real_png=True, thumbs=True)
+        a = self.pack()
+        os.utime(os.path.join(self.src, "roms/snes/images/acao.png"), None)   # refaz uma miniatura
+        lib2, _ = self.make(src=self.src, out=self.out, thumbs=True)
+        self.assertEqual(self.pack(), a)
+        self.assertEqual(lib1, lib2)
+
+    def test_stale_pack_removed(self):
+        self.make(real_png=True, thumbs=True)
+        open(os.path.join(self.out, "capas", "velho.bin"), "wb").write(b"x")
+        self.make(src=self.src, out=self.out, thumbs=True)
+        self.assertEqual(os.listdir(os.path.join(self.out, "capas")), ["snes.bin"])
 
     def test_small_source_scaled_to_300(self):
         src = tempfile.mkdtemp()
         touch(src, "/roms/snes/images/DKC3-image.png", png(64, 48))
         touch(src, "/roms/snes/images/DKC3-thumb.png", png(160, 120, "P"))
         self.make(src=src, thumbs=True)
-        with Image.open(os.path.join(self.out, "capas", DK_THUMB)) as im:
+        with Image.open(os.path.join(self.cache, DK_THUMB)) as im:
             self.assertEqual((im.size, im.mode), ((300, 225), "RGB"))
 
     def test_second_build_skips(self):
         self.make(real_png=True, thumbs=True)
-        p = os.path.join(self.out, "capas", DK_THUMB)
+        p = os.path.join(self.cache, DK_THUMB)
         old = time.time() - 100
         os.utime(os.path.join(self.src, "roms/snes/images/DKC3-thumb.png"), (old - 100, old - 100))
         os.utime(p, (old, old))
         lib, _ = self.make(src=self.src, out=self.out, thumbs=True)
         self.assertEqual(os.path.getmtime(p), old)   # não refez
-        self.assertIn("thumb", next(g for g in lib["games"] if g["name"] == "Donkey Kong Country 3"))
+        self.assertIn("thumb", self.games(lib)["Donkey Kong Country 3"])
         # fonte mais nova que a miniatura: refaz
         os.utime(os.path.join(self.src, "roms/snes/images/DKC3-thumb.png"), (old + 50, old + 50))
         self.make(src=self.src, out=self.out, thumbs=True)
@@ -185,18 +222,21 @@ class Thumbs(unittest.TestCase):
     def test_bad_image_no_thumb(self):
         lib, _ = self.make(thumbs=True)   # "PNG" de 3 bytes: Pillow não abre
         self.assertFalse([g for g in lib["games"] if "thumb" in g])
+        self.assertFalse([s for s in lib["systems"] if "capas" in s])
 
-    def test_drive_thumb_id_from_lsjson(self):
-        fake = {".web/capas/" + DK_THUMB: {"id": "1ThumbID", "size": 9000, "v": "abcdef1234"}}
+    def test_drive_pack_id_from_lsjson(self):
+        fake = {".web/capas/snes.bin": {"id": "1PackID", "size": 9000, "v": "abcdef1234"}}
         lib, _ = self.make(real_png=True, thumbs=True, drive=True, extra_ids=fake)
-        dk = next(g for g in lib["games"] if g["name"] == "Donkey Kong Country 3")
-        self.assertEqual(dk["thumb"], "1ThumbID.abcdef")
-        self.assertTrue(os.path.exists(os.path.join(self.out, "capas", DK_THUMB)))
+        snes = next(s for s in lib["systems"] if s["id"] == "snes")
+        self.assertEqual(snes["capas"], "1PackID.abcdef")
+        self.assertEqual(self.games(lib)["Donkey Kong Country 3"]["thumb"][1] > 0, True)
+        self.assertTrue(os.path.exists(os.path.join(self.out, "capas", "snes.bin")))   # o pacote a subir
 
-    def test_drive_thumb_not_uploaded_yet(self):
+    def test_drive_pack_not_uploaded_yet(self):
         lib, _ = self.make(real_png=True, thumbs=True, drive=True)
-        dk = next(g for g in lib["games"] if g["name"] == "Donkey Kong Country 3")
-        self.assertNotIn("thumb", dk)
+        self.assertFalse([s for s in lib["systems"] if "capas" in s])
+        dk = self.games(lib)["Donkey Kong Country 3"]
+        self.assertNotIn("thumb", dk)   # sem pacote no Drive: offsets não servem
         self.assertIn("box", dk)
 
 if __name__ == "__main__":

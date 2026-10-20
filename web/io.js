@@ -173,6 +173,30 @@ export function createIO({ backend, site, preload }) {
   const next = () => { while (active < PARALLEL && waiting.length) { active++; waiting.shift()(); } };
   const done = () => { active--; next(); };
   const enc = p => p.split("/").map(encodeURIComponent).join("/");
+  const idv = ref => { const i = ref.indexOf("."); return i < 0 ? { id: ref, v: "" } : { id: ref.slice(0, i), v: ref.slice(i + 1) }; };
+  // "@<caminho>[?<versão>]": relativo à pasta do índice do backend (hub: data/, demo: site/demo/data/); no Drive não existe
+  const atUrl = ref => {
+    if (backend === "drive") throw new Error(`"${ref}": "@" (relativo ao índice) só existe no hub/demo; no Drive é "<id>.<versão>"`);
+    const q = ref.indexOf("?");
+    return new URL("data/" + enc(q < 0 ? ref.slice(1) : ref.slice(1, q)) + (q < 0 ? "" : ref.slice(q)), backend === "demo" ? demoRoot : ROOT).href;
+  };
+  const whole = new Map();   // URL do pacote -> Promise<ArrayBuffer> (servidor que ignorou o Range)
+  // Cache API (chave = URL) ou, se não tem, get() na fila (PARALLEL de cada vez); get -> {buf, type}
+  async function cached(key, opts, get) {
+    const c = await cache();
+    const hit = c && await c.match(key).catch(() => null);
+    if (hit) { stats.cached++; return hit; }
+    await slot();
+    if (opts.wanted && !opts.wanted()) { done(); throw new DOMException("imagem fora da tela", "AbortError"); }
+    try {
+      const { buf, type } = await get();
+      stats.bytes += buf.byteLength;
+      const h = { "Content-Type": type };
+      if (c) c.put(key, resp(buf.slice(0), 200, h)).catch(() => {});
+      return resp(buf, 200, h);
+    } finally { done(); }
+  }
+  const blobUrl = async r => URL.createObjectURL(await r.blob());
   // índice completo para o emulador (o seletor só precisa do library.json.gz): pedido em segundo plano
   let indexPromise = null;
   function loadIndex() {
@@ -192,36 +216,49 @@ export function createIO({ backend, site, preload }) {
     get eager() { return eager; },
     get drive() { return drive; },
     loadIndex,
-    // URL de uma imagem do library.json.gz: caminho do cartão "/roms/..." (hub/demo: URL direta, cache HTTP), "@<caminho>"
-    // relativo à pasta do índice (hub: data/, demo: site/demo/data/; miniaturas "@capas/...") ou, no Drive,
+    // URL de uma imagem do library.json.gz: caminho do cartão "/roms/..." (hub/demo: URL direta, cache HTTP) ou, no Drive,
     // "<id>[.<versão>]" (blob; {id, v} de índices antigos também vale).
     // A URL blob é de quem chamou: revogar (URL.revokeObjectURL) quando a imagem sair da tela.
     // opts.wanted(): conferido quando chega a vez na fila; se não quer mais (saiu da tela), nem baixa (AbortError).
     async image(ref, opts = {}) {
       if (typeof ref === "string" && ref.startsWith("/")) return new URL("fs" + enc(ref), backend === "demo" ? demoRoot : ROOT).href;
-      if (typeof ref === "string" && ref.startsWith("@")) {
-        if (backend === "drive") throw new Error(`imagem "${ref}": "@" (relativo ao índice) só existe no hub/demo; no Drive é "<id>.<versão>"`);
-        return new URL("data/" + enc(ref.slice(1)), backend === "demo" ? demoRoot : ROOT).href;
-      }
-      if (typeof ref === "string") { const i = ref.indexOf("."); ref = i < 0 ? { id: ref, v: "" } : { id: ref.slice(0, i), v: ref.slice(i + 1) }; }
+      if (typeof ref === "string") ref = idv(ref);
       if (!drive) throw new Error("imagem do Drive sem login no Drive");
-      const c = await cache(), key = cacheKey(ref);
-      let r = c && await c.match(key).catch(() => null);
-      if (r) stats.cached++;
-      else {
-        await slot();
-        if (opts.wanted && !opts.wanted()) { done(); throw new DOMException("imagem fora da tela", "AbortError"); }
-        try {
-          r = await drive.media(ref.id);
-          stats.media++;
-          if (!r.ok) throw new Error(`imagem HTTP ${r.status}`);
-          const buf = await r.arrayBuffer(), type = { "Content-Type": r.headers.get("Content-Type") || "" };
-          stats.bytes += buf.byteLength;
-          if (c) c.put(key, resp(buf.slice(0), 200, type)).catch(() => {});
-          r = resp(buf, 200, type);
-        } finally { done(); }
+      return blobUrl(await cached(cacheKey(ref), opts, async () => {
+        const r = await drive.media(ref.id);
+        stats.media++;
+        if (!r.ok) throw new Error(`imagem HTTP ${r.status}`);
+        return { buf: await r.arrayBuffer(), type: r.headers.get("Content-Type") || "" };
+      }));
+    },
+    // miniatura de capa: recorte [off, off+len) do pacote do sistema (library: sistema "capas", jogo "thumb"), lido com
+    // Range. pack: hub/demo "@capas/<sistema>.bin?<versão>" (relativo à pasta do índice: data/ ou site/demo/data/);
+    // Drive "<id>.<versão>". URL blob (revogar como a do image); mesmo cache, fila e opts.wanted do image.
+    async thumb(pack, off, len, opts = {}) {
+      const type = "image/webp", end = off + len - 1;
+      if (pack.startsWith("@")) {
+        const url = atUrl(pack), key = `${url}${url.includes("?") ? "&" : "?"}r36s-thumb=${off}-${len}`;
+        return blobUrl(await cached(key, opts, async () => {
+          const w = whole.get(url);
+          if (w) return { buf: (await w).slice(off, off + len), type };
+          const r = await fetch(url, { headers: { Range: `bytes=${off}-${end}` } });
+          if (!r.ok) throw new Error(`miniatura HTTP ${r.status}`);
+          if (r.status === 206) return { buf: await r.arrayBuffer(), type };
+          // servidor sem Range (200 com o pacote todo): guarda o pacote e recorta dele as próximas
+          const p = r.arrayBuffer();
+          whole.set(url, p); p.catch(() => whole.delete(url));
+          return { buf: (await p).slice(off, off + len), type };
+        }));
       }
-      return URL.createObjectURL(await r.blob());
+      if (!drive) throw new Error("miniatura do Drive sem login no Drive");
+      const { id, v } = idv(pack);
+      return blobUrl(await cached(`${drive.api}/r36s-cache/thumb/${id}/${v}/${off}-${len}`, opts, async () => {
+        const r = await drive.media(id, { range: [off, end] });
+        stats.media++;
+        if (!r.ok) throw new Error(`miniatura HTTP ${r.status}`);
+        const buf = await r.arrayBuffer();
+        return { buf: r.status === 206 ? buf : buf.slice(off, off + len), type };
+      }));
     },
     // ROM para salvar (hub/demo): link direto
     romUrl(vpath) { return new URL("fs" + enc(vpath), backend === "demo" ? demoRoot : ROOT).href; },

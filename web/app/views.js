@@ -1,5 +1,6 @@
 // Telas do seletor: Início (destaque + prateleiras), Sistema (grade) e Busca (lista); barra lateral no PC.
-// Capas das fileiras, da grade e da busca: miniatura WebP (thumb), senão box/shot; destaque e ficha usam a original.
+// Capas das fileiras, da grade e da busca: miniatura WebP (pacote do sistema + recorte do jogo), senão box/shot;
+// destaque e ficha usam a original.
 // Cada capa é um botão com data-nav (foco por controle: web/app/nav.js) que abre a ficha.
 import * as P from "./prefs.js";
 
@@ -16,12 +17,18 @@ export const el = (tag, attrs = {}, ...kids) => {
 const ROW_MAX = 20, SEARCH_MAX = 200;
 const fmt = n => Number(n).toLocaleString("pt-BR");
 
+// imagem da capa pequena: recorte g.thumb do pacote do sistema (s.capas), senão a original
+function art(ctx, g) {
+  const s = ctx.lib.system(g.s);
+  return s && s.capas && g.thumb ? { pack: s.capas, off: g.thumb[0], len: g.thumb[1] } : g.box || g.shot;
+}
+
 // ctx: { lib, media, openSheet(game), go(hash) }
 export function cover(ctx, g) {
   const sys = ctx.lib.system(g.s);
   return el("button", { type: "button", class: `cover${sys && !sys.playable ? " off" : ""}`, "data-nav": true, "data-rom": g.rom,
     "aria-label": `${g.name} (${sys ? sys.name : g.s})`, onclick: () => ctx.openSheet(g) },
-    el("span", { class: "art" }, el("span", { class: "ph", text: g.name }), ctx.media.img(g.thumb || g.box || g.shot)),
+    el("span", { class: "art" }, el("span", { class: "ph", text: g.name }), ctx.media.img(art(ctx, g))),
     el("span", { class: "label", text: g.name }));
 }
 
@@ -72,7 +79,7 @@ export function renderSearch(ctx, q) {
     el("p", { class: "count", role: "status", text: q.trim() ? `${n} ${hits.length === 1 ? "jogo" : "jogos"}` : "Digite o nome de um jogo" }),
     ...hits.map(g => { const s = ctx.lib.system(g.s);
       return el("button", { type: "button", class: "hit", "data-nav": true, "data-rom": g.rom, onclick: () => ctx.openSheet(g) },
-        el("span", { class: "art" }, el("span", { class: "ph", text: "" }), ctx.media.img(g.thumb || g.box || g.shot)),
+        el("span", { class: "art" }, el("span", { class: "ph", text: "" }), ctx.media.img(art(ctx, g))),
         el("span", { class: "t" }, el("b", { text: g.name }), el("small", { text: [s ? s.name : g.s, g.year].filter(Boolean).join(" · ") }))); }));
 }
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Monta o modo demonstração do site: web/site/demo/fs/ (versionado: homebrews livres e configs)
--> web/site/demo/data/{manifest.json,eager.bin,library.json.gz} + miniaturas das capas em web/site/demo/data/capas/.
+-> web/site/demo/data/{manifest.json,eager.bin,library.json.gz} + pacotes de miniaturas das capas em web/site/demo/data/capas/ (cache das miniaturas: build/capas-cache/demo, fora do site).
 
   python3 data/mkdemo.py
 
@@ -18,7 +18,7 @@ DEMO = os.path.join(ROOT, "web", "site", "demo")
 def main():
     data = os.path.join(DEMO, "data")
     n, size = mkmanifest.build(os.path.join(DEMO, "fs"), data, cores=os.path.join(ROOT, "web", "data", "cores.json"),
-                               thumbs=os.path.join(data, "capas"))
+                               thumbs=os.path.join(ROOT, "build", "capas-cache", "demo"))
     print(f"demo: {n} arquivos, eager.bin {size / 1e6:.1f} MB")
 
 if __name__ == "__main__":

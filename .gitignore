@@ -20,3 +20,4 @@ dist/
 .claude/
 build/upload/
 build/test-out/
+build/capas-cache/

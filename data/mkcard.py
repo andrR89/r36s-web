@@ -9,7 +9,7 @@
   card/home/ark/.config/retroarch/                  (cópia: retroarch.cfg, retroarch-core-options.cfg, config/)
   card/usr/bin/emulationstation/                    (nosso resources/ + o que só o do cartão tem: battery/, fontawesome)
 
-Uso: python3 -I data/mkcard.py ; depois python3 -I data/mkmanifest.py card web/data --thumbs web/data/capas
+Uso: python3 -I data/mkcard.py ; depois python3 -I data/mkmanifest.py card web/data --thumbs web/data/.capas-cache
 """
 import os, shutil, sys
 

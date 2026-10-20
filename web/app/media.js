@@ -1,8 +1,10 @@
 // Capas e prints sob demanda: a imagem só é pedida quando o elemento fica perto da tela (400 px) por DELAY ms (rolagem
-// rápida não dispara downloads). Hub/demo: URL direta (cache HTTP); Drive: blob com o token (io.image), um por imagem,
+// rápida não dispara downloads). Imagem original no hub/demo: URL direta (cache HTTP); no Drive, e miniaturas (recorte do
+// pacote por Range, io.thumb) em todo backend: blob, um por imagem,
 // dividido entre as <img> que a mostram e revogado quando a última sai (release, ao trocar de tela).
 const DELAY = 150;
-const key = ref => (typeof ref === "string" ? ref : ref.id);
+// ref: string (cartão "/roms/..." ou Drive "<id>.<v>"), {id, v} (índice antigo) ou miniatura {pack, off, len} (io.thumb)
+const key = ref => (typeof ref === "string" ? ref : ref.pack ? `${ref.pack}#${ref.off}` : ref.id);
 
 export function createMedia(io) {
   const urls = new Map();   // chave -> { p: Promise<url>, n: <img> que usam }
@@ -13,7 +15,8 @@ export function createMedia(io) {
     if (!u) {
       u = { n: 0 };
       // wanted: na fila do Drive, uma imagem que todas as <img> já soltaram nem começa a baixar
-      u.p = io.image(img._ref, { wanted: () => u.n > 0 });
+      const r = img._ref, opts = { wanted: () => u.n > 0 };
+      u.p = r.pack ? io.thumb(r.pack, r.off, r.len, opts) : io.image(r, opts);
       u.p.catch(() => { if (urls.get(k) === u) urls.delete(k); });
       urls.set(k, u);
     }

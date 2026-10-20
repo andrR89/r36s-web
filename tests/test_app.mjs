@@ -43,11 +43,39 @@ t("recentes: mais novo primeiro, sem repetir, até 20", () => {
   assert.equal(r.length, 20); assert.equal(r[0], "/r/3"); assert.equal(r.filter(x => x === "/r/3").length, 1);
 });
 t("localStorage quebrado não derruba", () => { mem.set("r36s-prefs-v1", "{nada"); assert.deepEqual(P.load(), { fav: [], recent: [] }); });
-// io.image: "@..." é relativo à pasta do índice do backend (miniaturas: "@capas/<sistema>/<arquivo>.webp")
+// io.thumb: miniatura = recorte [início, tamanho] do pacote do sistema, lido com Range
 const { createIO } = await import("../web/io.js");
-const at = async (backend, ref) => createIO({ backend, site: backend === "drive" ? { drive: {}, library: {} } : null }).image(ref);
-assert.ok((await at("hub", "@capas/snes/a b#.webp")).endsWith("/web/data/capas/snes/a%20b%23.webp")); n++; console.log("ok io.image @ no hub");
-assert.ok((await at("demo", "@capas/snes/x.webp")).endsWith("/web/site/demo/data/capas/snes/x.webp")); n++; console.log("ok io.image @ no demo");
-await assert.rejects(at("drive", "@capas/snes/x.webp"), /@/); n++; console.log("ok io.image @ no Drive é erro");
-assert.ok((await at("hub", "/roms/snes/images/a.png")).endsWith("/web/fs/roms/snes/images/a.png")); n++; console.log("ok io.image caminho do cartão");
+globalThis.self = globalThis;   // io.js usa self.caches (sem Cache API no node: sem cache)
+const blobs = [];
+URL.createObjectURL = b => { blobs.push(b); return `blob:${blobs.length}`; };
+const pack = Uint8Array.from({ length: 64 }, (_, i) => i);
+let calls = [];
+globalThis.fetch = async (url, init = {}) => {
+  calls.push({ url: String(url), range: init.headers && init.headers.Range });
+  const m = /bytes=(\d+)-(\d+)/.exec(init.headers && init.headers.Range || "");
+  return globalThis.fakeIgnoresRange || !m ? new Response(pack.slice(), { status: 200 }) : new Response(pack.slice(+m[1], +m[2] + 1), { status: 206 });
+};
+const lastBlob = async () => [...new Uint8Array(await blobs.at(-1).arrayBuffer())];
+const hub = createIO({ backend: "hub" });
+assert.equal(await hub.thumb("@capas/snes.bin?ab12", 10, 4), `blob:${blobs.length}`);
+assert.ok(calls[0].url.endsWith("/web/data/capas/snes.bin?ab12")); assert.equal(calls[0].range, "bytes=10-13");
+assert.deepEqual(await lastBlob(), [10, 11, 12, 13]); assert.equal(blobs.at(-1).type, "image/webp");
+n++; console.log("ok io.thumb no hub: Range no pacote");
+calls = [];
+await createIO({ backend: "demo" }).thumb("@capas/nes x.bin?1", 0, 2);
+assert.ok(calls[0].url.endsWith("/web/site/demo/data/capas/nes%20x.bin?1")); n++; console.log("ok io.thumb no demo");
+// servidor que ignora Range (200 com o pacote todo): recorta, e o pacote fica guardado para as próximas
+globalThis.fakeIgnoresRange = true; calls = [];
+const io2 = createIO({ backend: "demo" });
+await io2.thumb("@capas/gb.bin?9", 5, 3); assert.deepEqual(await lastBlob(), [5, 6, 7]);
+await io2.thumb("@capas/gb.bin?9", 20, 2); assert.deepEqual(await lastBlob(), [20, 21]);
+assert.equal(calls.length, 1); n++; console.log("ok io.thumb sem Range: um download do pacote");
+globalThis.fakeIgnoresRange = false;
+const media = [];
+const drv = createIO({ backend: "drive", site: { drive: { api: "https://x", media: async (id, o) => { media.push([id, o.range]);
+  return new Response(pack.slice(o.range[0], o.range[1] + 1), { status: 206 }); } }, library: {} } });
+await drv.thumb("1Pack.abcdef", 30, 5);
+assert.deepEqual(media, [["1Pack", [30, 34]]]); assert.deepEqual(await lastBlob(), [30, 31, 32, 33, 34]);
+n++; console.log("ok io.thumb no Drive: media(id, range)");
+await assert.rejects(drv.thumb("@capas/snes.bin", 0, 1), /@/); n++; console.log("ok io.thumb @ no Drive é erro");
 console.log(`${n} testes ok`);

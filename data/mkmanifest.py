@@ -13,9 +13,10 @@ md5 ou data). Fora de /roms tudo vira eager (não está no Drive: vai no eager.b
 pastas de sistema que o ES não lista mas o player pode pedir (faixas .bin de .cue, saves .srm/.dsv do cartão...).
 Grava também info.json (sistemas, jogos) para a tela da biblioteca. Os quatro (manifest.json, eager.bin, info.json, library.json.gz) vão para R36S/.web/ no Drive.
 
---thumbs DIR: miniaturas WebP das capas (300 px de largura) em DIR/<sistema>/; cada jogo com imagem ganha "thumb" no
-library.json.gz. Hub/demo: DIR = <out>/capas (ref "@capas/...", relativa à pasta do índice), ex.
-`mkmanifest.py card web/data --thumbs web/data/capas`. Drive: DIR é a pasta que sobe para R36S/.web/capas (sobe.sh).
+--thumbs CACHE: miniaturas WebP das capas (300 px de largura) geradas em CACHE/<sistema>/ (só refaz as que mudaram) e
+juntadas num pacote por sistema em <out>/capas/<sistema>.bin; o library.json.gz guarda o pacote do sistema ("capas") e
+[início, tamanho] de cada jogo ("thumb"); o navegador lê com Range. Hub: `mkmanifest.py card web/data --thumbs
+web/data/.capas-cache`; Drive: os pacotes sobem para R36S/.web/capas (build/upload/sobe.sh).
 """
 import argparse, concurrent.futures, datetime, gzip, hashlib, json, os, re, sys, urllib.parse
 import xml.etree.ElementTree as ET
@@ -222,11 +223,60 @@ def make_thumbs(thumbs, wanted):
         print(f"aviso: {len(errors)} imagens sem miniatura, ex.: {[f'{d}: {e}' for d, e in errors[:3]]}", file=sys.stderr)
     return ok
 
+def write_packs(out, thumbs, systems, games, files, drive_ids):
+    """Miniaturas (cache em thumbs/<sistema>/) -> um pacote por sistema em <out>/capas/<sistema>.bin: concatenação na
+    ordem dos jogos no library (determinística; miniatura repetida entra uma vez). Jogo: "thumb": [início, tamanho];
+    sistema: "capas" = "@capas/<sistema>.bin?<sha1[:8]>" (hub/demo; a versão invalida o cache do navegador) ou
+    "<id>.<v6>" de .web/capas/<sistema>.bin na listagem do Drive (não subiu: nem "capas" nem "thumb")."""
+    wanted = {g["_thumb"][0]: (g["_thumb"][1], files[g["_thumb"][1]][0]) for g in games if "_thumb" in g}
+    have = make_thumbs(thumbs, wanted)
+    packs = os.path.join(out, "capas")
+    os.makedirs(packs, exist_ok=True)
+    written, total = set(), 0
+    for s in systems:
+        mine = [g for g in games if g["s"] == s["id"] and "_thumb" in g]
+        data, at = bytearray(), {}
+        for g in mine:
+            name = g.pop("_thumb")[0]
+            if name not in have:
+                continue
+            if name not in at:
+                with open(os.path.join(thumbs, name), "rb") as f:
+                    b = f.read()
+                at[name] = [len(data), len(b)]
+                data += b
+            g["thumb"] = at[name]
+        if not data:
+            continue
+        fn = s["id"] + ".bin"
+        dest = os.path.join(packs, fn)
+        try:
+            with open(dest, "rb") as f:
+                same = f.read() == data
+        except OSError:
+            same = False
+        if not same:   # pacote igual: não reescreve (mtime estável; o rclone nem compara)
+            with open(dest + ".tmp", "wb") as f:
+                f.write(data)
+            os.replace(dest + ".tmp", dest)
+        written.add(fn); total += len(data)
+        if drive_ids is None:
+            s["capas"] = f"@capas/{fn}?{hashlib.sha1(data).hexdigest()[:8]}"
+        elif (d := drive_ids.get(".web/capas/" + fn)):
+            s["capas"] = d["id"] + ("." + d["v"][:6] if d["v"] else "")
+        else:
+            for g in mine:
+                g.pop("thumb", None)
+    for fn in os.listdir(packs):
+        p = os.path.join(packs, fn)
+        if fn not in written and os.path.isfile(p):   # sistema que perdeu as imagens, sobra de geração antiga
+            os.remove(p)
+    print(f"pacotes de capas: {len(written)} em {packs}, {total/1e6:.1f} MB"
+          + ("" if drive_ids is None else f"; {sum('capas' in s for s in systems)} com ID no Drive"))
+
 def write_library(out, src, tree, drive_ids, cores_path, thumbs=None):
     """library.json.gz: sistemas com jogos (ordem do cores.json, senão do es_systems.cfg) e os jogos com os metadados.
-    thumbs: pasta das miniaturas WebP das capas (make_thumbs). Cada jogo com box/shot ganha "thumb": hub/demo =
-    "@<caminho relativo à pasta do índice>" (use thumbs = <out>/capas: "@capas/<sistema>/<arquivo>.webp"); Drive =
-    "<id>.<v6>" da entrada ".web/capas/<sistema>/<arquivo>.webp" da listagem (ainda não subiu: sem thumb)."""
+    thumbs: cache das miniaturas WebP das capas (make_thumbs), que viram pacotes por sistema (write_packs)."""
     systems = read_systems_full(src)
     cores = {}
     if cores_path and os.path.isfile(cores_path):
@@ -286,19 +336,7 @@ def write_library(out, src, tree, drive_ids, cores_path, thumbs=None):
                             "note": c.get("note") or "", "order": c.get("order", 1000 + pos)})
         out_games += games
     if thumbs:
-        wanted = {g["_thumb"][0]: (g["_thumb"][1], files[g["_thumb"][1]][0]) for g in out_games if "_thumb" in g}
-        have = make_thumbs(thumbs, wanted)
-        rel = os.path.relpath(thumbs, out).replace(os.sep, "/")
-        if drive_ids is None and rel.startswith(".."):
-            print(f"aviso: --thumbs ({thumbs}) fora da pasta do índice ({out}): o navegador não acha as miniaturas", file=sys.stderr)
-        for g in out_games:
-            name = g.pop("_thumb", (None,))[0]
-            if name not in have:
-                continue
-            if drive_ids is None:
-                g["thumb"] = "@" + rel + "/" + name
-            elif (d := drive_ids.get(".web/capas/" + name)):
-                g["thumb"] = d["id"] + ("." + d["v"][:6] if d["v"] else "")
+        write_packs(out, thumbs, out_systems, out_games, files, drive_ids)
     out_systems.sort(key=lambda s: s["order"])
     for s in out_systems:
         del s["order"]
@@ -389,8 +427,7 @@ if __name__ == "__main__":
     ap.add_argument("--drive-ids", metavar="LSJSON", help="saída de `rclone lsjson -R --hash gdrive:R36S` (modo Drive)")
     ap.add_argument("--cores", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "web", "data", "cores.json"),
                     help="mapa sistema -> núcleo (data/mkcores.py): playable/nota/ordem no library.json")
-    ap.add_argument("--thumbs", metavar="DIR", help="miniaturas WebP das capas em DIR/<sistema>/ (hub/demo: <out>/capas; "
-                    "Drive: a pasta que sobe para R36S/.web/capas)")
+    ap.add_argument("--thumbs", metavar="CACHE", help="miniaturas WebP das capas: cache em CACHE/<sistema>/, pacotes em <out>/capas/")
     a = ap.parse_args()
     n, size = build(a.src, a.out, read_lsjson(a.drive_ids) if a.drive_ids else None, a.cores, a.thumbs)
     msize = os.path.getsize(os.path.join(a.out, "manifest.json"))
