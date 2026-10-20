@@ -376,14 +376,24 @@ async function fetchParts(url, size, name) {
   return buf.buffer;
 }
 
-// Arquivo do MEMFS cujo conteúdo vem do servidor por Range, em pedaços de 4 MB, na hora da leitura. O núcleo lê com
+// Arquivo do MEMFS cujo conteúdo vem do servidor por Range, em pedaços de 4 MB, na hora da leitura (no Drive, decifrado pelo io.readSync). O núcleo lê com
 // fread síncrono: XHR síncrono com charset x-user-defined (o modo arraybuffer síncrono não existe fora de worker).
 function lazyFile(FS, path, url, size) {
   const chunks = new Map();
+  // Drive (biblioteca cifrada): o io decifra o pedaço (XHR síncrono + ChaCha20 síncrono); hub/demo/assets: XHR direto
+  const vp = io && io.backend === "drive" && io.readSync && url.startsWith("../fs/")
+    ? url.slice(5).split("/").map(decodeURIComponent).join("/") : null;
   const get = i => {
     let c = chunks.get(i);
     if (c) return c;
     const from = i * CHUNK, to = Math.min(size, from + CHUNK) - 1;
+    if (vp) {
+      try { c = io.readSync(vp, from, to); }
+      catch (e) { console.warn("[play] leitura falhou", vp, e.status || e.message); throw new FS.ErrnoError(29); }
+      chunks.set(i, c);
+      lazyStats.requests++; lazyStats.bytes += c.length;
+      return c;
+    }
     const x = new XMLHttpRequest();
     x.open("GET", url, false);
     x.setRequestHeader("Range", `bytes=${from}-${to}`);

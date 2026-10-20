@@ -52,6 +52,9 @@ try {
 const media = createMedia(io);
 const launch = await createLauncher({ io, site, focusBack: () => (document.querySelector("#sheet .play") || app).focus() });
 window.r36s.launch = launch;
+// biblioteca cifrada com acesso parcial: sistema sem chave aparece apagado, com o motivo na ficha
+// (createLibrary guarda os mesmos objetos que as telas usam: lib.systems / lib.system(id))
+if (io.canOpen) for (const s of lib.systems) if (!io.canOpen(s.id)) { s.playable = false; s.semAcesso = true; s.note = "Sem acesso a este sistema"; }
 q.placeholder = `Buscar em ${lib.total.toLocaleString("pt-BR")} jogos`;
 
 const ctx = {

@@ -1,7 +1,7 @@
 // node tests/download.mjs
 // ⬇ ROM no hub: o arquivo baixado é igual ao do cartão. No Drive (mock): ROM pequena vira blob com o nome original;
-// acima de 100 MB abre a página do arquivo no Google Drive numa aba nova (sem segurar o arquivo na memória);
-// se o navegador bloqueia a aba (window.open -> null), o erro avisa o usuário.
+// acima de 100 MB grava direto no disco (showSaveFilePicker, PC); sem ele (celular), erro claro.
+// O trecho do hub roda contra o servidor local (:8770); o do Drive usa io falso (Tarefa 8 troca por Drive simulado cifrado).
 import { chromium } from "/home/andre/Workspace/web-ports/tools/pw/node_modules/playwright-core/index.mjs";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -15,26 +15,27 @@ await p.click(".cover");
 const [dl] = await Promise.all([p.waitForEvent("download"), p.click("#sheet .rom")]);
 const got = createHash("md5").update(readFileSync(await dl.path())).digest("hex");
 const want = createHash("md5").update(readFileSync("/home/andre/Workspace/web-ports/r36s/card" + rom)).digest("hex");
-// Drive: io falso por cima do download.js (todas as ramificações)
+// Drive (cifrado): io falso por cima do download.js (todas as ramificações). A decifragem em si é do io.js
+// (tests/test_app.mjs); aqui vale o que o download.js faz com os pedaços já decifrados.
 const drive = await p.evaluate(async () => {
   const { downloadRom } = await import("/r36s/app/download.js");
-  const opened = []; const origOpen = window.open;
-  // o ID vem do manifest (loadIndex), não do jogo do library.json.gz
-  const manifest = { files: { "/roms/gbc/x.gbc": { size: 1234, id: "ID1" }, "/roms/psx/y.chd": { size: 300 << 20, id: "ID2" } } };
-  const io = { backend: "drive", loadIndex: async () => ({ manifest, eager: new Uint8Array(0) }),
-               drive: { media: async () => new Response(new Uint8Array(1234)) } };
-  const bigG = { rom: "/roms/psx/y.chd", size: 300 << 20 };
-  window.open = (u) => { opened.push(u); return { opener: 1 }; };
+  const big = 300 << 20, pedacos = [];
+  const io = { backend: "drive",
+    async *lerPedacos(vp) { pedacos.push(vp); for (let i = 0; i < 2; i++) yield new Uint8Array(617).fill(i + 1); } };
+  const bigIo = { backend: "drive", async *lerPedacos() { yield new Uint8Array(10); yield new Uint8Array(20); } };
   const small = await downloadRom(io, { rom: "/roms/gbc/x.gbc", size: 1234 }, () => {});
-  const big = await downloadRom(io, bigG, () => {});
-  window.open = (u) => { opened.push(u); return null; };
-  let blocked = null;
-  try { await downloadRom(io, bigG, () => {}); } catch (e) { blocked = String(e.message); }
-  window.open = origOpen;
-  return { small, big, opened, blocked };
+  // PC: acima de 100 MB grava direto no arquivo escolhido
+  const gravado = []; let fechado = false;
+  window.showSaveFilePicker = async o => ({ createWritable: async () => ({ write: async d => { gravado.push(d.length); }, close: async () => { fechado = true; }, abort: async () => {} }) });
+  const arq = await downloadRom(bigIo, { rom: "/roms/psx/y.chd", size: big }, () => {});
+  // celular (sem showSaveFilePicker): erro claro
+  delete window.showSaveFilePicker;
+  let celular = null;
+  try { await downloadRom(bigIo, { rom: "/roms/psx/y.chd", size: big }, () => {}); } catch (e) { celular = String(e.message); }
+  return { small, arq, gravado, fechado, celular, pedacos };
 });
-const ok = got === want && drive.small === "blob" && drive.big === "drive"
-  && drive.opened[0] === "https://drive.google.com/file/d/ID2/view" && /bloqueou a aba/.test(drive.blocked || "");
+const ok = got === want && drive.small === "blob" && drive.arq === "arquivo" && drive.fechado
+  && drive.gravado.join() === "10,20" && /celular/.test(drive.celular || "") && drive.pedacos[0] === "/roms/gbc/x.gbc";
 console.log(JSON.stringify({ ok, rom, name: dl.suggestedFilename(), same: got === want, drive }));
 await b.close();
 process.exit(ok ? 0 : 1);

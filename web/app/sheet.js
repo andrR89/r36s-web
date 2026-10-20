@@ -23,7 +23,7 @@ export function openSheet(ctx, g, { play = false } = {}) {
     abort = new AbortController(); romBtn.textContent = "Cancelar";
     try {
       const how = await downloadRom(ctx.io, g, (got, total) => { msg.textContent = `Baixando ${Math.round(got / 1e6)} / ${Math.round(total / 1e6)} MB…`; }, abort.signal);
-      msg.textContent = how === "drive" ? "Abri o arquivo no Google Drive numa aba nova: baixe por lá." : "Download iniciado.";
+      msg.textContent = how === "arquivo" ? "Salvo." : "Download iniciado.";
     } catch (e) { msg.textContent = e.name === "AbortError" ? "Download cancelado." : `Não deu para baixar: ${e.message}`; }
     finally { abort = null; romBtn.textContent = "⬇ ROM"; }
   });
@@ -55,7 +55,7 @@ export function openSheet(ctx, g, { play = false } = {}) {
       el("h2", { text: g.name }),
       el("div", { class: "tags" }, ...tags.map(t => el("span", { text: String(t) }))),
       g.desc ? el("p", { class: "desc", text: g.desc }) : null,
-      playable ? null : el("p", { class: "note", text: `Sem emulador no navegador${sys && sys.note ? `: ${sys.note}` : ""}.` }),
+      playable ? null : el("p", { class: "note", text: sys && sys.semAcesso ? `${sys.note}.` : `Sem emulador no navegador${sys && sys.note ? `: ${sys.note}` : ""}.` }),
       el("div", { class: "btns" }, playable ? playBtn : null, favBtn, romBtn),
       msg));
   history.pushState({ sheet: true }, "");

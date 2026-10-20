@@ -1,6 +1,6 @@
-// ⬇ ROM: salva o arquivo da ROM (para outro emulador ou para o R36S de verdade). Hub/demo: link direto. Drive: até
-// BLOB_MAX baixa aqui (com o token no cabeçalho, progresso e cancelar); acima, abre a página do arquivo no Google
-// Drive, que baixa sem passar pela memória do celular. O token nunca vai em URL.
+// ⬇ ROM: salva o arquivo da ROM (para outro emulador ou para o R36S de verdade). Hub/demo: link direto. Drive
+// (biblioteca cifrada): o io baixa e decifra em pedaços de 8 MB; até BLOB_MAX junta num blob; acima, grava direto no
+// disco onde o navegador deixa escolher o arquivo (showSaveFilePicker, PC); no celular, acima disso, não dá.
 const BLOB_MAX = 100 << 20;
 
 function save(href, name) {
@@ -9,30 +9,24 @@ function save(href, name) {
   document.body.append(a); a.click(); a.remove();
 }
 
-// -> "link" | "blob" | "drive"
+// -> "link" | "blob" | "arquivo"
 export async function downloadRom(io, g, onProgress, signal) {
   const name = g.rom.slice(g.rom.lastIndexOf("/") + 1);
   if (io.backend !== "drive") { save(io.romUrl(g.rom), name); return "link"; }
-  // o ID do Drive vem do manifest (o library.json.gz não leva: IDs não comprimem e o seletor abre antes)
-  const { manifest } = await io.loadIndex();
-  const id = (manifest.files[g.rom] || manifest.extra?.[g.rom])?.id;
-  if (!id) throw new Error("o índice não tem o ID deste arquivo (gere o índice de novo)");
-  if (g.size > BLOB_MAX) {
-    // sem "noopener" no open: com ele o retorno é sempre null e não dá para saber se o pop-up foi bloqueado
-    const w = window.open(`https://drive.google.com/file/d/${encodeURIComponent(id)}/view`, "_blank");
-    if (!w) throw new Error("o navegador bloqueou a aba: toque no botão de novo ou permita pop-ups");
-    w.opener = null;
-    return "drive";
-  }
-  const r = await io.drive.media(id, { signal });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  const total = Number(r.headers.get("Content-Length")) || g.size;
-  const parts = [];
+  if (g.size > BLOB_MAX && !window.showSaveFilePicker)
+    throw new Error("arquivo grande demais para baixar pelo navegador do celular (mais de 100 MB)");
   let got = 0;
-  if (r.body && r.body.getReader) {
-    const rd = r.body.getReader();
-    for (;;) { const { done, value } = await rd.read(); if (done) break; parts.push(value); got += value.length; onProgress(got, total); }
-  } else parts.push(new Uint8Array(await r.arrayBuffer()));
+  if (g.size > BLOB_MAX) {
+    const h = await window.showSaveFilePicker({ suggestedName: name });
+    const w = await h.createWritable();
+    try {
+      for await (const p of io.lerPedacos(g.rom, { signal })) { await w.write(p); got += p.length; onProgress(got, g.size); }
+      await w.close();
+    } catch (e) { await w.abort().catch(() => {}); throw e; }
+    return "arquivo";
+  }
+  const parts = [];
+  for await (const p of io.lerPedacos(g.rom, { signal })) { parts.push(p); got += p.length; onProgress(got, g.size); }
   const url = URL.createObjectURL(new Blob(parts, { type: "application/octet-stream" }));
   save(url, name);
   setTimeout(() => URL.revokeObjectURL(url), 60000);

@@ -68,7 +68,7 @@ export function renderSystem(ctx, id, order) {
   return el("div", { class: "system" },
     el("div", { class: "sys-head" }, el("h1", { text: s.name }), el("span", { class: "count", text: `${fmt(s.count)} jogos` }),
       el("div", { class: "seg", role: "group", "aria-label": "Ordem" }, seg("az", "A–Z"), seg("ano", "Ano"))),
-    s.playable ? null : el("p", { class: "note", text: `Sem emulador no navegador${s.note ? `: ${s.note}` : ""}.` }),
+    s.playable ? null : el("p", { class: "note", text: s.semAcesso ? `${s.note}.` : `Sem emulador no navegador${s.note ? `: ${s.note}` : ""}.` }),
     el("div", { class: "grid" }, ...ctx.lib.games(id, order).map(g => cover(ctx, g))));
 }
 
