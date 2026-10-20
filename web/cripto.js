@@ -3,9 +3,12 @@
 //
 //   chave(s) = HKDF-SHA256(mestra, salt "r36s-web/v1", info s): "sistema:<pasta de /roms>", "bios", "catalogo", "nomes"
 //   arquivo  = blocos de 1 MiB: nonce (12) || ChaCha20-Poly1305(texto) || tag (16); AAD = "r36s" || u32 i || u32 n_blocos
-//              nonce = HMAC-SHA256(chave, u32 i || texto)[:12] (mesmo conteúdo -> mesmo arquivo: republicar só sobe o
-//              que mudou)
-//   registro = miniatura: nonce || ChaCha20-Poly1305(webp) || tag, AAD "r36s-thumb", nonce = HMAC(chave, webp)[:12]
+//              nonce = HMAC-SHA256(chave, "r36s-bloco" || u32 i || texto)[:12] (mesmo conteúdo -> mesmo arquivo:
+//              republicar só sobe o que mudou)
+//   registro = miniatura: nonce || ChaCha20-Poly1305(webp) || tag, AAD "r36s-thumb",
+//              nonce = HMAC(chave, "r36s-thumb" || webp)[:12]
+//   Os rótulos separam os domínios do HMAC: a mesma chave ("catalogo") cifra arquivos e registros, e sem rótulo um
+//   registro cujo webp começasse com u32 i colidiria com o nonce de um bloco.
 //
 // Cifra: ChaCha20-Poly1305 (@noble/ciphers) em vez de AES-GCM: em JS puro o AES-GCM levava ~590 ms por 4 MB com a CPU
 // 4x mais lenta, o ChaCha20 ~60 ms. O lazyFile do player lê com XHR síncrono dentro do fread do núcleo, onde a
@@ -20,6 +23,7 @@ const te = new TextEncoder();
 export const BLOCO = 1 << 20, EXTRA = 28, CIFRADO = BLOCO + EXTRA;
 const SALT = te.encode("r36s-web/v1");
 const AAD_THUMB = te.encode("r36s-thumb");
+const ROTULO_BLOCO = te.encode("r36s-bloco"), ROTULO_THUMB = te.encode("r36s-thumb");   // domínios do HMAC do nonce
 
 export const nBlocos = size => Math.ceil(size / BLOCO);
 export const tamanhoCifrado = size => size + nBlocos(size) * EXTRA;
@@ -53,7 +57,7 @@ const hmac = async (chave, ...partes) => {
 };
 // ---- cifrar (empacotador) ----
 export async function cifrarBloco(chave, i, n, texto) {
-  const iv = (await hmac(chave, Uint8Array.from(u32(i)), texto)).subarray(0, 12);
+  const iv = (await hmac(chave, ROTULO_BLOCO, Uint8Array.from(u32(i)), texto)).subarray(0, 12);
   const c = chacha20poly1305(chave, iv, aad(i, n)).encrypt(texto);
   const out = new Uint8Array(12 + c.length);
   out.set(iv, 0); out.set(c, 12);
@@ -65,7 +69,7 @@ export async function cifrarArquivo(chave, texto) {
   return out;
 }
 export async function cifrarRegistro(chave, dados) {
-  const iv = (await hmac(chave, dados)).subarray(0, 12);
+  const iv = (await hmac(chave, ROTULO_THUMB, dados)).subarray(0, 12);
   const c = chacha20poly1305(chave, iv, AAD_THUMB).encrypt(dados);
   const out = new Uint8Array(12 + c.length);
   out.set(iv, 0); out.set(c, 12);

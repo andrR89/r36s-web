@@ -75,7 +75,7 @@ catálogo.
 bloco i = nonce (12) || ChaCha20-Poly1305(chave, texto[i*1 MiB, (i+1)*1 MiB)) || tag (16)
 arquivo = bloco 0 || bloco 1 || ...        (último bloco pode ser menor; arquivo vazio = 0 blocos)
 AAD     = "r36s" || u32 i || u32 n_blocos  (bloco fora de ordem, truncado ou de outro tamanho falha)
-nonce   = HMAC-SHA256(chave, u32 i || texto do bloco)[:12]
+nonce   = HMAC-SHA256(chave, "r36s-bloco" || u32 i || texto do bloco)[:12]
 ```
 
 - O nonce determinístico (como na biblioteca) faz o mesmo conteúdo gerar o mesmo arquivo: republicar só sobe o que
@@ -88,7 +88,7 @@ nonce   = HMAC-SHA256(chave, u32 i || texto do bloco)[:12]
 ### Miniaturas
 
 Pacote por sistema como hoje, mas cada miniatura é um registro `nonce || ChaCha20-Poly1305(chave do catálogo, webp) || tag`
-(AAD = `"r36s-thumb"`, nonce = HMAC-SHA256(chave, webp)[:12]). O `thumb: [off, len]` do library aponta para o registro cifrado; o Range continua funcionando.
+(AAD = `"r36s-thumb"`, nonce = HMAC-SHA256(chave, "r36s-thumb" || webp)[:12]). O `thumb: [off, len]` do library aponta para o registro cifrado; o Range continua funcionando.
 Os pacotes também ganham nome opaco.
 
 ### Drive
