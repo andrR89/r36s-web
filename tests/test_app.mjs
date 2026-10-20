@@ -106,6 +106,22 @@ assert.equal(r.status, 206);
 iguais(new Uint8Array(await r.arrayBuffer()), romTexto.subarray(C.BLOCO - 3, C.BLOCO + 5), "Range");
 assert.deepEqual(pedidosT.at(-1), ["rom", [0, 2 * C.CIFRADO - 1]]);
 n++; console.log("ok io drive cifrado: arquivo inteiro e Range cruzando blocos");
+// sufixo "bytes=-N" = últimos N bytes (cruzando bloco); N maior que o arquivo = tudo; -0, vários intervalos e lixo = 416
+{
+  const r = await f("fs/roms/snes/J.sfc", { headers: { Range: "bytes=-150" } });
+  assert.equal(r.status, 206);
+  assert.equal(r.headers.get("Content-Range"), `bytes ${romTexto.length - 150}-${romTexto.length - 1}/${romTexto.length}`);
+  iguais(new Uint8Array(await r.arrayBuffer()), romTexto.subarray(romTexto.length - 150), "Range sufixo");
+  assert.deepEqual(pedidosT.at(-1), ["rom", [C.CIFRADO, 3 * C.CIFRADO - 1 - (C.BLOCO - 100)]]);
+  const tudo = await f("fs/roms/snes/J.sfc", { headers: { Range: `bytes=-${romTexto.length + 9}` } });
+  assert.equal(tudo.status, 206);
+  iguais(new Uint8Array(await tudo.arrayBuffer()), romTexto, "Range sufixo maior que o arquivo");
+  const fim = await f("fs/roms/snes/J.sfc", { headers: { Range: `bytes=${romTexto.length - 2}-` } });
+  iguais(new Uint8Array(await fim.arrayBuffer()), romTexto.subarray(romTexto.length - 2), "Range aberto");
+  for (const ruim of ["bytes=-0", "bytes=0-1,5-6", "bytes=-", "itens=0-1", `bytes=${romTexto.length}-`])
+    assert.equal((await f("fs/roms/snes/J.sfc", { headers: { Range: ruim } })).status, 416, ruim);
+}
+n++; console.log("ok io drive cifrado: Range sufixo, aberto e inválidos");
 // sistema sem chave -> 403; canOpen
 assert.equal((await f("fs/roms/gba/X.gba")).status, 403);
 assert.equal(cif.canOpen("snes"), true);

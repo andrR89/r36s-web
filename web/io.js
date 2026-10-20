@@ -48,10 +48,16 @@ export function createIO({ backend, site, preload }) {
     if (!k) return resp(null, 403);   // sistema sem acesso (o backend não mandou a chave)
     if (init.method === "HEAD") return resp(null, 200, { "Content-Length": String(e.size) });
     if (!e.size) return resp(new Uint8Array(0), 200, { "Content-Length": "0" });
+    // Range de um intervalo só: "bytes=a-b", "bytes=a-" ou o sufixo "bytes=-N" (últimos N bytes); vários intervalos
+    // ou sintaxe estranha -> 416 (melhor que devolver o arquivo inteiro, que pode ter GBs)
     const range = init.headers && (init.headers.Range || init.headers.range);
-    const m = range && /bytes=(\d+)-(\d*)/.exec(range);
-    const de = m ? +m[1] : 0, ate = Math.min(e.size - 1, m && m[2] ? +m[2] : e.size - 1);
-    if (de > ate) return resp(null, 416, { "Content-Range": `bytes */${e.size}` });
+    const m = range ? /^\s*bytes=(\d*)-(\d*)\s*$/.exec(range) : null;
+    const nada = () => resp(null, 416, { "Content-Range": `bytes */${e.size}` });
+    if (range && (!m || (m[1] === "" && m[2] === ""))) return nada();
+    let de = 0, ate = e.size - 1;
+    if (m && m[1] === "") { if (+m[2] === 0) return nada(); de = Math.max(0, e.size - +m[2]); }
+    else if (m) { de = +m[1]; if (m[2]) ate = Math.min(ate, +m[2]); }
+    if (de > ate) return nada();
     // pede os blocos cifrados inteiros que cobrem [de, ate] e devolve só o recorte em claro
     const fx = faixa(de, ate, e.size);
     const r = await drive.media(e.id, { range: [fx.cDe, fx.cAte], signal: init.signal });
