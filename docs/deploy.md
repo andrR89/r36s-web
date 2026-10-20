@@ -60,9 +60,10 @@ O cartão montado (`/run/media/andre/EASYROMS`, só leitura) é lido pela árvor
 
 1. `mkmanifest.py card build/upload/claro --thumbs build/upload/capas-cache`: o índice em claro, só local.
 2. `cifrar.mjs cifrar`: cada arquivo de `card/roms` (fora `ports/`, `themes/`, `*.log`) vira
-   `build/upload/dados/<opaco>`; só cifra de novo o que mudou. O mapa com os nomes reais
+   `$DADOS/<opaco>` (padrão `/run/media/andre/external/r36s-dados`: a cópia cifrada tem ~39 GiB e o /home não tem
+   espaço); só cifra de novo o que mudou. O mapa com os nomes reais
    (`build/upload/mapa.json`) **nunca sobe**.
-3. `rclone sync build/upload/dados gdrive:R36S-dados` (só nessa pasta: o que saiu do cartão sai do Drive).
+3. `rclone sync $DADOS gdrive:R36S-dados` (só nessa pasta: o que saiu do cartão sai do Drive).
 4. `cifrar.mjs indice` com o `lsjson` da pasta: manifest/library com os IDs, cifrados; sobem também.
 5. `cifrar.mjs ponteiro` -> `build/upload/indice.json` -> `tools/publicar.sh r36s-indice` (biblioteca).
 
