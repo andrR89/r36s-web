@@ -21,7 +21,7 @@ copiar); esconder o tamanho e a quantidade de arquivos; mudar o visual (próxima
 | Unidade | jogo inteiro concatenado, partes de 16 MiB em arquivos separados | **cada arquivo do cartão** vira um arquivo cifrado, em blocos de 1 MiB dentro do mesmo arquivo |
 | Chave | uma aleatória por jogo, no Vault | **uma mestra** no Vault; o backend deriva a chave de cada sistema (HKDF) |
 | Acesso | `acesso(jogo, email)`, `*` = todos | linhas `r36s:*` (tudo) ou `r36s:<sistema>` na mesma tabela |
-| Decifrar | WebCrypto, chave não exportável | WebCrypto no caminho assíncrono **e** AES-GCM em JS (síncrono) no caminho sob demanda, ver "Por que a chave fica em JS" |
+| Decifrar | WebCrypto, chave não exportável | ChaCha20-Poly1305 em JS (`@noble/ciphers`): conferindo a etiqueta no caminho assíncrono, só o ChaCha20 no caminho sob demanda; ver "Por que a chave fica em JS" e "Cifra: ChaCha20" |
 | Drive | pastas com o título, capa/prints/info em claro | pasta com nome neutro, arquivos com **nome opaco**, tudo cifrado (índice, capas, miniaturas) |
 
 ### Por que a chave do sistema chega ao JavaScript
@@ -34,12 +34,24 @@ meio de um `fread`).
 
 Consequência aceita: a chave do sistema existe como bytes na memória da aba durante a sessão (não vai para storage, não
 vai para a URL). A proteção que importa (o Drive não revela nada; só o backend entrega chave; dá para revogar) continua.
-A alternativa (service worker decifrando o XHR síncrono, chave não exportável) depende de o Chrome entregar XHR
-síncrono ao service worker; fica registrada como melhoria, não como requisito.
+A alternativa (service worker decifrando o XHR síncrono, chave não exportável) foi descartada: o Chromium não passa
+XHR síncrono pelo service worker (ver "Cifra: ChaCha20").
 
-Biblioteca JS: `@noble/ciphers` (AES-GCM síncrono, auditada), versão fixa, copiada para `web/vendor/` com a licença.
-Critério de desempenho: decifrar 4 MB em menos de 150 ms no A54 (medir na primeira tarefa; se não der, blocos menores
-no sob demanda não ajudam, a saída é o service worker).
+Biblioteca JS: `@noble/ciphers` 2.0.1 (auditada), empacotada em `web/vendor/` com a licença.
+Critério de desempenho: decifrar 4 MB no caminho síncrono em menos de 150 ms (Chromium, CPU 4x mais lenta, como
+aproximação do A54).
+
+### Cifra: ChaCha20 (decisão de 2026-10-20, depois da medida)
+
+Medido no Chromium, 4 MB, CPU 4x mais lenta: AES-GCM em JS 591-631 ms; AES-CTR em JS (GCM sem a etiqueta) 339 ms;
+ChaCha20-Poly1305 146 ms; ChaCha20 sem a etiqueta 61 ms; AES-GCM da WebCrypto 33 ms. Service worker não serve: o
+Chromium não passa XHR síncrono pelo service worker (testado: o `fetch` passou, o XHR síncrono foi direto ao servidor).
+
+Decisão do andre: formato **ChaCha20-Poly1305** (RFC 8439). O caminho sob demanda (`readSync`) decifra só com o
+ChaCha20 (contador a partir de 1, o mesmo fluxo que o Poly1305 usa), **sem conferir a etiqueta**: 61 ms por 4 MB.
+Todo o resto (ROM inteira, índice, capas, miniaturas, ⬇ ROM) confere a etiqueta. Consequência aceita: um arquivo
+adulterado no Drive faz o jogo grande ler lixo em vez de dar erro claro; ninguém lê nada sem a chave. A WebCrypto
+continua no HMAC (nonce), no HKDF e no embrulho; não tem ChaCha, então a decifra é toda em JS.
 
 ## Formato
 
@@ -60,7 +72,7 @@ catálogo.
 ### Arquivo cifrado (ROM, BIOS, capa, índice)
 
 ```
-bloco i = nonce (12) || AES-256-GCM(chave, texto[i*1 MiB, (i+1)*1 MiB)) || tag (16)
+bloco i = nonce (12) || ChaCha20-Poly1305(chave, texto[i*1 MiB, (i+1)*1 MiB)) || tag (16)
 arquivo = bloco 0 || bloco 1 || ...        (último bloco pode ser menor; arquivo vazio = 0 blocos)
 AAD     = "r36s" || u32 i || u32 n_blocos  (bloco fora de ordem, truncado ou de outro tamanho falha)
 nonce   = HMAC-SHA256(chave, u32 i || texto do bloco)[:12]
@@ -75,7 +87,7 @@ nonce   = HMAC-SHA256(chave, u32 i || texto do bloco)[:12]
 
 ### Miniaturas
 
-Pacote por sistema como hoje, mas cada miniatura é um registro `nonce || GCM(chave do catálogo, webp) || tag`
+Pacote por sistema como hoje, mas cada miniatura é um registro `nonce || ChaCha20-Poly1305(chave do catálogo, webp) || tag`
 (AAD = `"r36s-thumb"`, nonce = HMAC-SHA256(chave, webp)[:12]). O `thumb: [off, len]` do library aponta para o registro cifrado; o Range continua funcionando.
 Os pacotes também ganham nome opaco.
 
@@ -143,7 +155,7 @@ Primeira carga: ~38,6 GiB / 25.469 arquivos re-subidos cifrados (o Drive conta c
 ## Site (repositório r36s)
 
 - `web/cripto.js`: formato de bloco, AAD, nonce, HKDF (empacotador), desembrulho (navegador), decifra assíncrona
-  (WebCrypto) e síncrona (`@noble/ciphers`). Testado em Node contra os dois caminhos (mesmo texto).
+  (ChaCha20-Poly1305 com a etiqueta) e síncrona (ChaCha20 sem a etiqueta). Testado em Node contra os dois caminhos (mesmo texto).
 - Login (`web/site/site.js`): depois do token, chama a função `r36s` com o par ECDH. 200 -> guarda `{indice, chaves}`
   em memória (não em storage) e segue. 403 -> tela "Sem acesso" com o formulário de pedido (nome + mensagem) e o status
   do pedido. 401 -> o fluxo de login vencido que já existe.
@@ -159,7 +171,7 @@ Primeira carga: ~38,6 GiB / 25.469 arquivos re-subidos cifrados (o Drive conta c
 
 ## Erros
 
-- Bloco que não confere (tag GCM) -> o arquivo é tratado como corrompido: 502 no `fetch`, `EIO` no `fread`, e o
+- Bloco que não confere (etiqueta Poly1305, caminho assíncrono) -> o arquivo é tratado como corrompido: 502 no `fetch`, `EIO` no `fread`, e o
   cache daquele ID é apagado.
 - Backend fora (Supabase pausado após 7 dias sem uso, rede): tela "Servidor de chaves indisponível, tente de novo"
   com botão; o demo continua disponível.
@@ -193,5 +205,4 @@ Primeira carga: ~38,6 GiB / 25.469 arquivos re-subidos cifrados (o Drive conta c
 - Biblioteca: as pastas do `gdrive:Jogos` têm o nome dos jogos e `capa`/`prints`/`info.json`/`pack.json`/
   `webports-game.json` estão em claro. Corrigir com o mesmo esquema (nomes opacos, capas cifradas com chave de
   catálogo).
-- Service worker decifrando com chave não exportável.
 - Ping para o Supabase não pausar (os dois sites dependem dele).

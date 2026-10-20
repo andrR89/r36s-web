@@ -21,6 +21,16 @@ função `r36s` (mesmo núcleo, login e tabela `acesso` da biblioteca). O `io.js
 índice em claro (modo hub, que já existe e é testado) e **toda** a parte cifrada fica no `data/cifrar.mjs` (três
 subcomandos). Assim o formato da cifra vive num lugar só (JS, o mesmo código do navegador).
 
+## Decisão depois da Tarefa 1 (vale para o plano inteiro)
+
+A medida reprovou o AES-GCM em JS (591 ms por 4 MB, CPU 4x). Formato trocado para **ChaCha20-Poly1305** (spec, seção
+"Cifra: ChaCha20"): `cifrarBloco`/`cifrarRegistro` e os caminhos assíncronos usam `chacha20poly1305` da
+`@noble/ciphers` (conferem a etiqueta); `decifrarIntervaloSync` usa `chacha20` com contador 1, **sem** conferir a
+etiqueta. Nonce, AAD, tamanhos (28 bytes por bloco), HKDF, nomes e embrulho não mudam, nem a API exportada do
+`web/cripto.js`. Onde o código das tarefas abaixo disser AES-GCM/`gcm`, vale ChaCha20-Poly1305. Consequência para os
+testes: adulterar um bloco faz o caminho assíncrono falhar (502/erro), mas o `decifrarIntervaloSync` só devolve bytes
+errados (não lança).
+
 ## Regras para quem executa
 
 - Repositórios: `/home/andre/Workspace/web-ports/r36s` (branch `etapa1`) e `/home/andre/Workspace/web-ports/biblioteca`
