@@ -8,8 +8,7 @@ const defaults = {
   gisScript: "https://accounts.google.com/gsi/client",
   auth: "google",          // "google" | "mock" (testes: devolve mockToken sem abrir o Google)
   mockToken: "",
-  // "Pedir acesso": link da pasta R36S do dono no Drive (Compartilhar -> Copiar link). O Google mostra "Solicitar
-  // acesso" e manda e-mail ao dono. Vazio até a pasta existir no Drive (ver docs/deploy.md).
-  requestAccessUrl: "",
+  // backend da biblioteca (Supabase h-games-web): função r36s (chaves) e conta?op=pedir (pedido de acesso)
+  funcoes: "https://grymbzwpukgauwoyttqc.supabase.co/functions/v1",
 };
 export default Object.assign({}, defaults, window.R36S_CONFIG || {});

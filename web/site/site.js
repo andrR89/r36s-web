@@ -1,14 +1,12 @@
-// SPA do site: home -> login Google -> biblioteca (própria / compartilhada / as duas / nenhuma) -> seletor de jogos em tela cheia.
+// SPA do site: home -> login Google -> biblioteca (do backend, com chaves; ou tela sem acesso) -> seletor de jogos em tela cheia.
 // O seletor roda num iframe (../index.html?backend=drive|demo) e pega daqui, por window.r36sSite (mesma origem), a camada
-// do Drive (../drive.js, com o token em memória) e a biblioteca escolhida. Sair do seletor = remover o iframe.
+// do Drive (../drive.js, com o token em memória) e a biblioteca (índice + chaves, só em memória). Sair do seletor = remover o iframe.
 import cfg from "./config.js";
 import { createAuth } from "./auth.js";
 import { createDrive } from "../drive.js";
+import { biblioteca, pedirAcesso } from "./acesso.js";
 
 const $ = s => document.querySelector(s);
-const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
-  set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) {} } };
-const REMEMBER = "r36s-library";
 const h = (tag, attrs = {}, ...kids) => {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
@@ -91,23 +89,29 @@ $("#google-btn").addEventListener("click", async () => {
   } finally { btn.disabled = false; }
 });
 $("#sign-out").addEventListener("click", () => {
-  auth.signOut(); app.libraries = null; app.library = null; app.user = null;
+  auth.signOut(); app.libraries = null; app.semAcesso = undefined; app.library = null; app.user = null;
   location.hash = "#/";
 });
 
 // ---------------------------------------------------------------- biblioteca
+// A biblioteca vem do backend (função r36s: índice + chaves de quem foi aprovado), não de pastas do Drive.
 const fmt = n => Number(n || 0).toLocaleString("pt-BR");
 const ownerName = lib => {
   const o = lib.owner || {};
   const first = (o.displayName || o.emailAddress || "").split(/[\s@]/)[0];
   return first ? `Biblioteca de ${first}` : "Biblioteca compartilhada";
 };
-const libTitle = lib => (lib.kind === "own" ? "Minha pasta R36S" : ownerName(lib));
-const libMeta = (lib, withSaves) => {
-  if (!lib.index) return "sem índice ainda: falta gerar R36S/.web (docs/deploy.md)";
-  const i = lib.index.info || {};
-  return `${fmt(i.systems)} sistemas · ${fmt(i.games)} jogos` + (withSaves ? " · seus saves ficam no seu Drive" : "");
+const libMeta = lib => {
+  const i = (lib.index && lib.index.info) || {};
+  return `${fmt(i.systems)} sistemas · ${fmt(i.games)} jogos · seus saves ficam no seu Drive`;
 };
+
+// busca a biblioteca no backend; 403 = sem acesso (app.semAcesso guarda o pedido: null = nunca pediu)
+async function fetchLibrary() {
+  const go = force => auth.getToken(force).then(token => biblioteca({ funcoes: cfg.funcoes, token }));
+  try { return await go(false); }
+  catch (e) { if (e.status !== 401) throw e; return go(true); }   // login vencido: renova (pode pedir um toque) e tenta de novo
+}
 
 async function loadLibraries(force) {
   const box = $("#lib");
@@ -115,12 +119,15 @@ async function loadLibraries(force) {
   else $("#user-name").textContent = app.user.displayName || app.user.emailAddress;
   if (!app.libraries || force) {
     app.state = "loading";
-    put(box, h("p", { class: "loading", text: "PROCURANDO A PASTA R36S…" }));
-    try { app.libraries = await drive.findLibraries(); app.error = null; }
+    put(box, h("p", { class: "loading", text: "ABRINDO A BIBLIOTECA…" }));
+    try { app.libraries = [await fetchLibrary()]; app.semAcesso = undefined; app.error = null; }
     catch (e) {
-      app.state = "error"; app.error = e.message;
-      return put(box, h("h1", { text: "Não deu para ler o Drive" }), h("p", { class: "err", text: e.message }),
-        h("button", { type: "button", class: "ghost switch", text: "Tentar de novo", onclick: () => loadLibraries(true) }));
+      if (e.status === 403) { app.libraries = []; app.semAcesso = e.pedido; app.error = null; }
+      else {
+        app.state = "error"; app.error = e.message;
+        return put(box, h("h1", { text: "Servidor de chaves indisponível" }), h("p", { class: "err", text: e.message }),
+          h("button", { type: "button", class: "ghost switch", text: "Tentar de novo", onclick: () => loadLibraries(true) }));
+      }
     }
   }
   renderLibraries();
@@ -134,60 +141,52 @@ function play(lib) {
 
 function renderLibraries() {
   const box = $("#lib");
-  const { own, shared } = app.libraries;
-  const all = [...shared, ...own];
-  const remembered = all.find(l => l.id === store.get(REMEMBER));
-  if (!all.length) return renderNone(box);
-  if (all.length === 1 || remembered) {
-    const lib = remembered || all[0];
-    app.state = all.length === 1 ? lib.kind : "both-remembered";
-    const card = h("div", { class: `lib-card ${lib.kind}` },
-      lib.kind === "shared" ? h("img", { src: "img/biblioteca.png", alt: "" }) : null,
-      h("div", { class: "info" },
-        h("span", { class: "kind", text: lib.kind === "shared" ? "COMPARTILHADA COM VOCÊ" : "NO SEU DRIVE" }),
-        h("span", { class: "lib-title", text: libTitle(lib) }),
-        h("span", { class: "lib-meta", text: libMeta(lib, lib.kind === "shared") })),
-      h("button", { type: "button", class: "play-btn", text: "Jogar", disabled: !lib.index, onclick: () => play(lib) }));
-    put(box, h("h1", { text: "Biblioteca encontrada" }), card,
-      !lib.index && lib.kind === "own" ? ownHint() : null,
-      remembered && all.length > 1 ? h("button", { type: "button", class: "switch", text: "Trocar de biblioteca",
-        onclick: () => { store.set(REMEMBER, null); renderLibraries(); } }) : null);
-    return;
-  }
-  app.state = "both";
-  const remember = h("input", { type: "checkbox", id: "remember" });
-  const choice = lib => h("button", { type: "button", class: `choice ${lib.kind}`, onclick: () => { if (remember.checked) store.set(REMEMBER, lib.id); if (lib.index) play(lib); else renderLibraries(); } },
-    h("span", { class: "kind", text: lib.kind === "shared" ? "COMPARTILHADA" : "SUA" }),
-    h("span", { class: "lib-title", text: libTitle(lib) }),
-    h("span", { class: "lib-meta", text: libMeta(lib, false) }));
-  put(box, h("h1", { text: "Qual biblioteca?" }), h("div", { class: "choose" }, ...all.map(choice)),
-    h("label", { class: "remember" }, remember, " Lembrar a escolha neste aparelho"));
+  const lib = app.libraries[0];
+  if (!lib) return renderSemAcesso(box);
+  app.state = lib.kind;
+  const card = h("div", { class: `lib-card ${lib.kind}` },
+    h("img", { src: "img/biblioteca.png", alt: "" }),
+    h("div", { class: "info" },
+      h("span", { class: "kind", text: "COMPARTILHADA COM VOCÊ" }),
+      h("span", { class: "lib-title", text: ownerName(lib) }),
+      h("span", { class: "lib-meta", text: libMeta(lib) })),
+    h("button", { type: "button", class: "play-btn", text: "Jogar", disabled: !lib.index, onclick: () => play(lib) }));
+  put(box, h("h1", { text: "Biblioteca encontrada" }), card);
 }
 
-function ownHint() {
-  return h("p", { class: "hint" }, "Suba os jogos para a pasta R36S do seu Drive (uma subpasta por sistema: snes, nes, gba…) e gere o índice ",
-    h("code", { text: "R36S/.web" }), " com ", h("code", { text: "data/mkmanifest.py --drive-ids" }), " — passo a passo em docs/deploy.md.");
-}
-
-function renderNone(box) {
-  app.state = "none";
+// conta sem acesso: pedir (formulário), aguardando (pendente) ou recusado; sempre dá para tentar de novo ou ver o demo
+function renderSemAcesso(box) {
+  const pedido = app.semAcesso;   // null = nunca pediu
+  app.state = pedido ? `sem-acesso-${pedido.status}` : "sem-acesso";
   const msg = h("p", { class: "hint", role: "status" });
-  put(box, h("h1", { text: "Nenhuma biblioteca ainda" }),
-    h("div", { class: "none" },
-      h("div", {}, h("b", { text: "Testar agora" }), h("p", { text: "Abre a biblioteca com jogos homebrew livres que já vêm no site." }),
-        h("button", { type: "button", class: "solid", text: "Modo demonstração", onclick: () => { location.hash = "#/demo"; } })),
-      h("div", {}, h("b", { text: "Usar meus jogos" }), h("p", { text: "Crie a pasta R36S no seu Drive com uma subpasta por sistema: snes, nes, gba…" }),
-        h("button", { type: "button", class: "ghost", text: "Criar pasta no meu Drive", onclick: async e => {
-          e.target.disabled = true;
-          try { await drive.createLibrary(); await loadLibraries(true); }
-          catch (x) { msg.textContent = `Não deu para criar a pasta: ${x.message}`; e.target.disabled = false; }
-        } })),
-      h("div", {}, h("b", { text: "Biblioteca da família" }), h("p", { text: "Peça acesso: o dono recebe um e-mail do Google para aprovar." }),
-        h("button", { type: "button", class: "ghost", text: "Pedir acesso", onclick: () => {
-          if (cfg.requestAccessUrl) open(cfg.requestAccessUrl, "_blank", "noopener");
-          else msg.textContent = "O link para pedir acesso ainda não foi configurado. Peça ao dono da biblioteca para compartilhar a pasta R36S com o seu e-mail.";
-        } }))),
-    msg);
+  const retry = h("button", { type: "button", class: "ghost switch", text: "Tentar de novo", onclick: () => loadLibraries(true) });
+  const demo = h("a", { class: "switch", href: "#/demo", text: "Ver o modo demonstração" });
+  let corpo;
+  if (!pedido) {
+    const nome = h("input", { type: "text", id: "pedido-nome", name: "nome", required: true, maxlength: 80, autocomplete: "name" });
+    const mensagem = h("textarea", { id: "pedido-msg", name: "mensagem", rows: 3, maxlength: 500 });
+    const enviar = h("button", { type: "submit", class: "solid", text: "Pedir acesso" });
+    corpo = h("form", { class: "pedido", onsubmit: async e => {
+      e.preventDefault();
+      if (!nome.value.trim()) { msg.textContent = "Diga seu nome."; return; }
+      enviar.disabled = true; msg.textContent = "";
+      try {
+        await pedirAcesso({ funcoes: cfg.funcoes, token: await auth.getToken(false), nome: nome.value.trim(), mensagem: mensagem.value.trim() });
+        app.semAcesso = { status: "pendente" };
+        app.state = "sem-acesso-enviado";
+        msg.textContent = "Pedido enviado. Assim que o André aprovar, é só entrar de novo.";
+        corpo.replaceChildren(msg);
+      } catch (x) { msg.textContent = `Não deu para enviar o pedido: ${x.message}`; enviar.disabled = false; }
+    } },
+      h("p", { class: "hint", text: "Esta biblioteca é privada. Conte quem você é e o André recebe o pedido para aprovar." }),
+      h("label", { for: "pedido-nome", text: "Seu nome" }), nome,
+      h("label", { for: "pedido-msg", text: "Mensagem (opcional)" }), mensagem,
+      enviar, msg);
+  } else {
+    corpo = h("p", { class: "hint", role: "status",
+      text: pedido.status === "recusado" ? "O pedido não foi aprovado." : "Seu pedido está aguardando aprovação." });
+  }
+  put(box, h("h1", { text: "Sem acesso à biblioteca" }), corpo, retry, demo);
 }
 
 // ---------------------------------------------------------------- seletor em tela cheia

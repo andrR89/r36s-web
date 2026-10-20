@@ -208,3 +208,11 @@ footer .wrap { padding-top: 28px; padding-bottom: 28px; display: flex; flex-wrap
 .renew-box .gbtn { width: 100%; }
 .renew-box .renew-err { margin: 16px 0 0; color: var(--pink); }
 .renew-box .renew-err:empty { display: none; }
+
+/* ---------- sem acesso (pedido de acesso à biblioteca) */
+.pedido { display: flex; flex-direction: column; gap: 10px; max-width: 480px; }
+.pedido label { font-size: 14px; color: var(--soft2); }
+.pedido input, .pedido textarea { padding: 10px 12px; background: var(--deep); color: #fff; border: 2px solid var(--line); font: 14px var(--mono); }
+.pedido .solid { align-self: flex-start; margin-top: 6px; padding: 12px 16px; background: var(--cyan); color: var(--ink); border: 0; font-weight: 700; font-size: 14px; cursor: pointer; }
+.pedido .solid[disabled] { opacity: .5; cursor: wait; }
+a.switch { display: inline-block; margin-left: 18px; }

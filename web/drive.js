@@ -1,5 +1,5 @@
-// Camada do Google Drive (API v3, REST puro): biblioteca R36S (própria ou compartilhada), índice em R36S/.web/,
-// leitura por ID (com Range) e saves na pasta "R36S Web — saves" do Drive de cada usuário.
+// Camada do Google Drive (API v3, REST puro): leitura por ID (com Range) dos arquivos da biblioteca (achados pelo índice
+// que o backend entrega, ver web/site/acesso.js) e saves na pasta "R36S Web — saves" do Drive de cada usuário.
 // Interface única para o site (web/site/site.js), o seletor (web/io.js) e o player (via io.js); os testes usam
 // tests/mock_drive.py no lugar de https://www.googleapis.com (mesmos caminhos e parâmetros).
 //
@@ -57,19 +57,6 @@ export function createDrive({ api = "https://www.googleapis.com", getToken, peek
       method: "POST", headers: { "Content-Type": "application/json; charset=UTF-8" }, body: JSON.stringify(body) });
   }
 
-  // índice da biblioteca: R36S/.web/{manifest.json, eager.bin, info.json} (data/mkmanifest.py --drive-ids)
-  async function libraryIndex(folderId) {
-    const web = await child(folderId, INDEX_DIR, FOLDER);
-    if (!web) return null;
-    const files = await list(`'${quote(web.id)}' in parents and trashed = false`);
-    const by = Object.fromEntries(files.map(f => [f.name, f]));
-    if (!by["manifest.json"] || !by["eager.bin"] || !by["library.json.gz"]) return null;
-    let info = null;
-    if (by["info.json"]) { try { const r = await req(mediaPath(by["info.json"].id)); if (r.ok) info = await r.json(); } catch (e) {} }
-    return { manifest: by["manifest.json"].id, eager: by["eager.bin"].id, library: by["library.json.gz"].id, info,
-      modifiedTime: by["manifest.json"].modifiedTime, eagerTime: by["eager.bin"].modifiedTime, libraryTime: by["library.json.gz"].modifiedTime };
-  }
-
   // saves: <SAVES_NAME>/<sistema>/<arquivo>, no Drive de quem joga (escopo drive.file: só vê o que o app criou)
   const saveIds = new Map();
   let savesRoot = null;
@@ -102,26 +89,11 @@ export function createDrive({ api = "https://www.googleapis.com", getToken, peek
 
   return {
     api,
-    list, child, createFolder, libraryIndex,
+    list, child, createFolder,
     mediaUrl: id => api + mediaPath(id),
     authHeader: () => "Bearer " + peekToken(),
 
     async user() { return (await json("/drive/v3/about?fields=user(displayName,emailAddress,photoLink)")).user; },
-
-    // pastas "R36S" do usuário e compartilhadas com ele, cada uma com o índice (.web) se houver
-    async findLibraries() {
-      const base = `name = '${LIBRARY_NAME}' and mimeType = '${FOLDER}' and trashed = false`;
-      const [own, shared] = await Promise.all([list(base + " and 'me' in owners"), list(base + " and sharedWithMe = true")]);
-      const seen = new Set(own.map(f => f.id));
-      const withIndex = async (f, kind) => ({ id: f.id, name: f.name, kind, owner: (f.owners && f.owners[0]) || null,
-        modifiedTime: f.modifiedTime, index: await libraryIndex(f.id).catch(() => null) });
-      return {
-        own: await Promise.all(own.map(f => withIndex(f, "own"))),
-        shared: await Promise.all(shared.filter(f => !seen.has(f.id)).map(f => withIndex(f, "shared"))),
-      };
-    },
-
-    async createLibrary() { return createFolder(LIBRARY_NAME, "root"); },
 
     // conteúdo de um arquivo por ID; range = [início, fim] inclusivo
     media(id, { range, signal, keepalive } = {}) {
