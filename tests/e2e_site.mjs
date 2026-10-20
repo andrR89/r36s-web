@@ -162,13 +162,30 @@ try {
       check(st.state === "sem-acesso" && /Sem acesso à biblioteca/.test(st.text), "tok-none: tela sem acesso");
       check(depois.state === "sem-acesso-enviado" && /Pedido enviado/.test(depois.text), "tok-none: pedido enviado");
       check(pedidos["tok-none"] === "pendente", "tok-none: backend registrou o pedido pendente");
+      // pedido recusado: o formulário volta, com a linha do recusado em cima
+      await fetch(funcoes + "/_mock/pedidos", { method: "POST", body: JSON.stringify({ "tok-none": "recusado" }) });
       await c.close();
+      const r1 = await ctx({}, "tok-none");
+      const rec = await entrar(r1.p, "sem-acesso-recusado");
+      const form = await r1.p.evaluate(() => !!document.querySelector("form.pedido #pedido-nome"));
+      await r1.p.screenshot({ path: `${out}/sem-acesso-recusado.png` });
+      await r1.c.close();
+      // aprovado (e revogado depois) também mostra o formulário, sem a linha
+      await fetch(funcoes + "/_mock/pedidos", { method: "POST", body: JSON.stringify({ "tok-none": "aprovado" }) });
+      const r2 = await ctx({}, "tok-none");
+      const apr = await entrar(r2.p, "sem-acesso");
+      const form2 = await r2.p.evaluate(() => !!document.querySelector("form.pedido #pedido-nome"));
+      await r2.c.close();
+      step("acesso-recusado", { rec, form, apr, form2 });
+      check(rec.state === "sem-acesso-recusado" && form && /anterior não foi aprovado; você pode pedir de novo/.test(rec.text), "recusado: formulário com o aviso");
+      check(apr.state === "sem-acesso" && form2 && !/não foi aprovado/.test(apr.text), "aprovado/revogado: formulário sem aviso");
+      await fetch(funcoes + "/_mock/pedidos", { method: "POST", body: JSON.stringify({ "tok-none": "pendente" }) });
     }
     {
       const { c, p } = await ctx({}, "tok-both");
       const st = await entrar(p, "sem-acesso-pendente");
       step("acesso-pendente", st);
-      check(st.state === "sem-acesso-pendente" && /aguardando aprovação/.test(st.text), "tok-both: pedido aguardando");
+      check(st.state === "sem-acesso-pendente" && /aguardando aprovação/.test(st.text) && !st.text.includes("Pedir acesso"), "tok-both: pedido aguardando (sem formulário)");
       await c.close();
     }
   }

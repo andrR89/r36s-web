@@ -1,7 +1,7 @@
 // node tests/mock_chaves.mjs <porta> --mestra <arquivo> --indice <indice.json>
 // Backend local com o contrato da função "r36s" e de "conta?op=pedir" (o de verdade: biblioteca, supabase/functions).
 // Tokens (os do tests/mock_drive.py): tok-shared = tudo, tok-own = só snes, tok-none = sem acesso (pode pedir),
-// tok-both = pedido pendente. Inspeção: GET /_mock/pedidos.
+// tok-both = pedido pendente. Inspeção: GET /_mock/pedidos; POST /_mock/pedidos {tok: status} muda o estado.
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import * as C from "../web/cripto.js";
@@ -18,6 +18,11 @@ createServer(async (req, res) => {
   const fim = (status, corpo) => { res.writeHead(status, { ...cors, "Content-Type": "application/json" }); res.end(JSON.stringify(corpo)); };
   if (req.method === "OPTIONS") return res.writeHead(204, cors), res.end();
   const url = new URL(req.url, "http://x");
+  if (url.pathname === "/_mock/pedidos" && req.method === "POST") {
+    let corpo = "";
+    for await (const c of req) corpo += c;
+    return fim(200, Object.assign(pedidos, JSON.parse(corpo || "{}")));
+  }
   if (url.pathname === "/_mock/pedidos") return fim(200, pedidos);
   const tok = (req.headers.authorization || "").replace(/^Bearer /, "");
   if (!tok.startsWith("tok-")) return fim(401, { error: "login" });

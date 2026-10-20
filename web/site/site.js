@@ -106,7 +106,7 @@ const libMeta = lib => {
   return `${fmt(i.systems)} sistemas · ${fmt(i.games)} jogos · seus saves ficam no seu Drive`;
 };
 
-// busca a biblioteca no backend; 403 = sem acesso (app.semAcesso guarda o pedido: null = nunca pediu)
+// busca a biblioteca no backend; 403 = sem acesso (app.semAcesso guarda o pedido: null = nenhum pendente)
 async function fetchLibrary() {
   const go = force => auth.getToken(force).then(token => biblioteca({ funcoes: cfg.funcoes, token }));
   try { return await go(false); }
@@ -154,38 +154,40 @@ function renderLibraries() {
   put(box, h("h1", { text: "Biblioteca encontrada" }), card);
 }
 
-// conta sem acesso: pedir (formulário), aguardando (pendente) ou recusado; sempre dá para tentar de novo ou ver o demo
+// conta sem acesso: pedido pendente -> aguardando (sem formulário); qualquer outro caso (nunca pediu = null, recusado,
+// aprovado e revogado depois) -> formulário, com uma linha se o último foi recusado. Sempre dá para tentar de novo ou
+// ver o demo.
 function renderSemAcesso(box) {
-  const pedido = app.semAcesso;   // null = nunca pediu
-  app.state = pedido ? `sem-acesso-${pedido.status}` : "sem-acesso";
-  const msg = h("p", { class: "hint", role: "status" });
+  const status = app.semAcesso ? app.semAcesso.status : null;   // o backend manda pedido: null se não há pendente
   const retry = h("button", { type: "button", class: "ghost switch", text: "Tentar de novo", onclick: () => loadLibraries(true) });
   const demo = h("a", { class: "switch", href: "#/demo", text: "Ver o modo demonstração" });
-  let corpo;
-  if (!pedido) {
-    const nome = h("input", { type: "text", id: "pedido-nome", name: "nome", required: true, maxlength: 80, autocomplete: "name" });
-    const mensagem = h("textarea", { id: "pedido-msg", name: "mensagem", rows: 3, maxlength: 500 });
-    const enviar = h("button", { type: "submit", class: "solid", text: "Pedir acesso" });
-    corpo = h("form", { class: "pedido", onsubmit: async e => {
-      e.preventDefault();
-      if (!nome.value.trim()) { msg.textContent = "Diga seu nome."; return; }
-      enviar.disabled = true; msg.textContent = "";
-      try {
-        await pedirAcesso({ funcoes: cfg.funcoes, token: await auth.getToken(false), nome: nome.value.trim(), mensagem: mensagem.value.trim() });
-        app.semAcesso = { status: "pendente" };
-        app.state = "sem-acesso-enviado";
-        msg.textContent = "Pedido enviado. Assim que o André aprovar, é só entrar de novo.";
-        corpo.replaceChildren(msg);
-      } catch (x) { msg.textContent = `Não deu para enviar o pedido: ${x.message}`; enviar.disabled = false; }
-    } },
-      h("p", { class: "hint", text: "Esta biblioteca é privada. Conte quem você é e o André recebe o pedido para aprovar." }),
-      h("label", { for: "pedido-nome", text: "Seu nome" }), nome,
-      h("label", { for: "pedido-msg", text: "Mensagem (opcional)" }), mensagem,
-      enviar, msg);
-  } else {
-    corpo = h("p", { class: "hint", role: "status",
-      text: pedido.status === "recusado" ? "O pedido não foi aprovado." : "Seu pedido está aguardando aprovação." });
+  if (status === "pendente") {
+    app.state = "sem-acesso-pendente";
+    return put(box, h("h1", { text: "Sem acesso à biblioteca" }),
+      h("p", { class: "hint", role: "status", text: "Seu pedido está aguardando aprovação." }), retry, demo);
   }
+  app.state = status === "recusado" ? "sem-acesso-recusado" : "sem-acesso";
+  const msg = h("p", { class: "hint", role: "status" });
+  const nome = h("input", { type: "text", id: "pedido-nome", name: "nome", required: true, maxlength: 80, autocomplete: "name" });
+  const mensagem = h("textarea", { id: "pedido-msg", name: "mensagem", rows: 3, maxlength: 500 });
+  const enviar = h("button", { type: "submit", class: "solid", text: "Pedir acesso" });
+  const corpo = h("form", { class: "pedido", onsubmit: async e => {
+    e.preventDefault();
+    if (!nome.value.trim()) { msg.textContent = "Diga seu nome."; return; }
+    enviar.disabled = true; msg.textContent = "";
+    try {
+      await pedirAcesso({ funcoes: cfg.funcoes, token: await auth.getToken(false), nome: nome.value.trim(), mensagem: mensagem.value.trim() });
+      app.semAcesso = { status: "pendente" };
+      app.state = "sem-acesso-enviado";
+      msg.textContent = "Pedido enviado. Assim que o André aprovar, é só entrar de novo.";
+      corpo.replaceChildren(msg);
+    } catch (x) { msg.textContent = `Não deu para enviar o pedido: ${x.message}`; enviar.disabled = false; }
+  } },
+    status === "recusado" ? h("p", { class: "hint", text: "O pedido anterior não foi aprovado; você pode pedir de novo." }) : null,
+    h("p", { class: "hint", text: "Esta biblioteca é privada. Conte quem você é e o André recebe o pedido para aprovar." }),
+    h("label", { for: "pedido-nome", text: "Seu nome" }), nome,
+    h("label", { for: "pedido-msg", text: "Mensagem (opcional)" }), mensagem,
+    enviar, msg);
   put(box, h("h1", { text: "Sem acesso à biblioteca" }), corpo, retry, demo);
 }
 
