@@ -147,3 +147,21 @@ Saem: `web/emulationstation.{js,wasm}`, `web/fsboot.js`, a parte de ES do `web/b
 - Rolagem sem travar numa grade de 800 capas no A54.
 - Os 23 sistemas abrem pelo seletor; saves continuam indo e voltando do Drive.
 - Nenhum arquivo do ES no `dist/`.
+
+## Adendo (2026-10-19): miniaturas das capas
+
+As capas do cartão são PNGs compostos de ~186 KB (3 MB na primeira tela do celular, 27 MB rolando o GBA). Na
+publicação, o gerador faz uma miniatura WebP por jogo com imagem:
+
+- Fonte: `box`, senão `shot` (a mesma que a capa usa hoje). 300 px de largura, proporção mantida, qualidade 72,
+  sem metadados. Alvo ~10–20 KB.
+- `data/mkmanifest.py --thumbs DIR`: grava em `DIR/<sistema>/<sha1(vpath da fonte)[:16]>.webp`; não refaz se a miniatura
+  existe e é mais nova que a fonte; em paralelo (processos). Sem `--thumbs`, nada muda.
+- `library.json.gz` ganha `thumb` em cada jogo com miniatura: hub/demo = `"@capas/<sistema>/<arquivo>.webp"` (relativo
+  à pasta do índice: `data/` no hub, `site/demo/data/` no demo); Drive = `"<id>.<v6>"` da miniatura enviada para
+  `R36S/.web/capas/`, achada na listagem do Drive (`.web/capas/...`); se a miniatura ainda não subiu, o jogo fica sem
+  `thumb` (usa `box`/`shot` como hoje).
+- Seletor: capas das fileiras, da grade e da busca usam `thumb`, senão `box`, senão `shot`. Destaque e ficha continuam
+  com a imagem original. `io.image` entende o prefixo `@` (relativo ao índice do backend).
+- Publicação no Drive (`build/upload/sobe.sh indice`): gera as miniaturas em `build/upload/capas`, `rclone copy` para
+  `gdrive:R36S/.web/capas`, lista o Drive de novo e gera o índice com os IDs. Hub: `--thumbs web/data/capas`.
