@@ -1,16 +1,19 @@
 // E/S do seletor e do player. O seletor (index.html) e o player (retroarch/play.js) falam o "idioma" do hub:
 // data/library.json.gz, data/manifest.json, data/eager.bin, fs/<caminho do cartão>, saves/<sistema>/<arquivo>
 // (GET 404 = sem save; PUT). Aqui esse espaço de URLs é traduzido para o backend escolhido pelo site (web/site/site.js):
-//   drive — biblioteca R36S no Google Drive: índice em R36S/.web (IDs dos arquivos no manifesto), arquivos por ID com
-//           Range, capas em cache (Cache API) por ID+versão, saves no Drive do usuário;
+//   drive — biblioteca cifrada (spec 2026-10-20-acesso-cifrado): índice pelo backend, arquivos opacos no Drive
+//           decifrados aqui (por bloco, com Range; chaves em site.library.keys); cache (Cache API) guarda o cifrado,
+//           por ID+versão; saves no Drive do usuário;
 //   demo  — homebrews servidos com o site (site/demo/), saves no Drive se logado, senão só neste navegador (IndexedDB);
 //   hub   — fs/, saves/ e data/ do hub local: fetch/XHR normais.
-// Interface: io.fetchFrom(base) -> função com a assinatura do fetch; io.xhrFrom(base) -> classe XMLHttpRequest.
+// Interface: io.fetchFrom(base) -> função com a assinatura do fetch; io.xhrFrom(base) -> classe XMLHttpRequest;
+// no Drive também io.readSync (lazyFile do player), io.lerPedacos (⬇ ROM) e io.canOpen (sistema com chave).
+
+import { faixa, chaveDoCaminho, decifrarIntervalo, decifrarIntervaloSync, decifrarArquivo, decifrarRegistro } from "./cripto.js";
 
 const ROOT = new URL("./", import.meta.url);   // web/
 const CACHE = "r36s-drive-v1";
 const PARALLEL = 4;   // downloads de imagens do Drive ao mesmo tempo
-const IMG = /\.(png|jpe?g|webp|gif|svg)$/i;
 
 const resp = (body, status = 200, headers = {}) => new Response(body, { status, headers });
 const notFound = () => resp(null, 404);
@@ -22,6 +25,9 @@ export function createIO({ backend, site, preload }) {
   const demoRoot = new URL("site/demo/", ROOT);
   let manifest = (preload && preload.manifest) || null, eager = (preload && preload.eager) || null;
   const stats = { media: 0, cached: 0, bytes: 0, saves: { get: 0, put: 0 } };
+  // chaves da biblioteca (só em memória): "catalogo" (índice, capas, miniaturas), "bios", "sistema:<id>"
+  const keys = (library && library.keys) || null;
+  const keyOf = vpath => (keys && keys[chaveDoCaminho(vpath)]) || null;
 
   const entryOf = vpath => manifest && (manifest.files[vpath] || (manifest.extra && manifest.extra[vpath])) || null;
   const relOf = url => { const u = new URL(url, ROOT); return u.href.startsWith(ROOT.href) ? u.href.slice(ROOT.href.length).split(/[?#]/)[0] : null; };
@@ -38,26 +44,27 @@ export function createIO({ backend, site, preload }) {
       return init.method === "HEAD" ? resp(null, 200, { "Content-Length": String(e.size) }) : resp(data.slice(), 200, { "Content-Length": String(e.size) });
     }
     if (!e.id) return notFound();
+    const k = keyOf(vpath);
+    if (!k) return resp(null, 403);   // sistema sem acesso (o backend não mandou a chave)
     if (init.method === "HEAD") return resp(null, 200, { "Content-Length": String(e.size) });
+    if (!e.size) return resp(new Uint8Array(0), 200, { "Content-Length": "0" });
     const range = init.headers && (init.headers.Range || init.headers.range);
-    const cacheable = !range && (IMG.test(vpath) || vpath.startsWith("/roms/themes/"));
-    if (cacheable) {
-      const c = await cache();
-      const hit = c && await c.match(cacheKey(e)).catch(() => null);
-      if (hit) { stats.cached++; return hit; }
-    }
     const m = range && /bytes=(\d+)-(\d*)/.exec(range);
-    const r = await drive.media(e.id, m ? { range: [+m[1], m[2] ? +m[2] : e.size - 1] } : {});
+    const de = m ? +m[1] : 0, ate = Math.min(e.size - 1, m && m[2] ? +m[2] : e.size - 1);
+    if (de > ate) return resp(null, 416, { "Content-Range": `bytes */${e.size}` });
+    // pede os blocos cifrados inteiros que cobrem [de, ate] e devolve só o recorte em claro
+    const fx = faixa(de, ate, e.size);
+    const r = await drive.media(e.id, { range: [fx.cDe, fx.cAte], signal: init.signal });
     stats.media++;
     if (!r.ok) return resp(null, r.status === 404 ? 404 : 502);
-    if (cacheable) {
-      const buf = await r.arrayBuffer();
-      stats.bytes += buf.byteLength;
-      const c = await cache();
-      if (c) c.put(cacheKey(e), resp(buf.slice(0), 200, { "Content-Length": String(buf.byteLength) })).catch(() => {});
-      return resp(buf, 200, { "Content-Length": String(buf.byteLength) });
-    }
-    return r;
+    let c = new Uint8Array(await r.arrayBuffer());
+    if (r.status === 200 && c.length > fx.cAte - fx.cDe + 1) c = c.subarray(fx.cDe, fx.cAte + 1);   // Range ignorado
+    let t;
+    try { t = await decifrarIntervalo(k, c, de, ate, e.size); }
+    catch (err) { console.warn("[io] bloco não confere", vpath, err); return resp(null, 502); }
+    stats.bytes += c.length;
+    return m ? resp(t, 206, { "Content-Length": String(t.length), "Content-Range": `bytes ${de}-${ate}/${e.size}` })
+             : resp(t, 200, { "Content-Length": String(t.length) });
   }
 
   // ---- saves ----
@@ -100,19 +107,34 @@ export function createIO({ backend, site, preload }) {
     }
   }
 
-  // índice (manifest.json, eager.bin ~0,1 MB, library.json.gz) em cache por ID + data de modificação: só baixa de novo quando muda
-  async function indexFile(id, version) {
-    const key = `${drive.api}/r36s-cache/index/${id}/${version || ""}`;
-    const c = version ? await cache() : null;
+  // índice (manifest.json, eager.bin ~0,1 MB, library.json.gz; ref = {id, v} vindo do backend) em cache por ID +
+  // versão: só baixa de novo quando muda. O cache guarda o cifrado; etiqueta que não confere -> 502 e sai do cache.
+  async function indexFile(ref) {
+    if (!ref || !ref.id) return notFound();
+    const key = `${drive.api}/r36s-cache/index/${ref.id}/${ref.v || ""}`;
+    const c = ref.v ? await cache() : null;
     const hit = c && await c.match(key).catch(() => null);
-    if (hit) { stats.cached++; return hit; }
-    const r = await drive.media(id);
-    if (!r.ok || !c) return r;
-    const buf = await r.arrayBuffer();
-    // versões antigas deste mesmo arquivo saem do cache (não acumulam a cada nova geração do índice)
-    for (const k of await c.keys().catch(() => [])) if (k.url.includes(`/r36s-cache/index/${id}/`) && k.url !== key) c.delete(k).catch(() => {});
-    c.put(key, resp(buf.slice(0), 200)).catch(() => {});
-    return resp(buf, 200);
+    let buf;
+    if (hit) { stats.cached++; buf = new Uint8Array(await hit.arrayBuffer()); }
+    else {
+      const r = await drive.media(ref.id);
+      if (!r.ok) return resp(null, r.status);
+      buf = new Uint8Array(await r.arrayBuffer());
+    }
+    if (!keys || !keys.catalogo) return resp(null, 403);
+    let t;
+    try { t = await decifrarArquivo(keys.catalogo, buf); }
+    catch (err) {
+      console.warn("[io] índice não confere", ref.id, err);
+      if (hit) c.delete(key).catch(() => {});
+      return resp(null, 502);
+    }
+    if (c && !hit) {
+      // versões antigas deste mesmo arquivo saem do cache (não acumulam a cada nova geração do índice)
+      for (const k of await c.keys().catch(() => [])) if (k.url.includes(`/r36s-cache/index/${ref.id}/`) && k.url !== key) c.delete(k).catch(() => {});
+      c.put(key, resp(buf.slice(), 200)).catch(() => {});
+    }
+    return resp(t, 200);
   }
 
   // manifest e eager do Drive: uma promessa por arquivo, dividida entre as rotas e o loadIndex (um download só)
@@ -120,7 +142,7 @@ export function createIO({ backend, site, preload }) {
   let manifestP = null, eagerP = null;
   function driveManifest() {
     if (manifest) return Promise.resolve(manifest);
-    return manifestP || (manifestP = indexFile(library.index.manifest, library.index.modifiedTime)
+    return manifestP || (manifestP = indexFile(library.index.manifest)
       .then(r => { if (!r.ok) throw fail("manifest", r.status); return r.json(); })
       .then(m => (manifest = m))
       .catch(e => { manifestP = null; throw e; }));
@@ -128,7 +150,7 @@ export function createIO({ backend, site, preload }) {
   // eager vazio só com 404 (índice sem eager); outra falha rejeita e tenta de novo na próxima vez
   function driveEager() {
     if (eager) return Promise.resolve(eager);
-    return eagerP || (eagerP = indexFile(library.index.eager, library.index.eagerTime)
+    return eagerP || (eagerP = indexFile(library.index.eager)
       .then(r => r.ok ? r.arrayBuffer() : r.status === 404 ? new ArrayBuffer(0) : Promise.reject(fail("eager", r.status)))
       .then(b => (eager = new Uint8Array(b)))
       .catch(e => { eagerP = null; throw e; }));
@@ -154,7 +176,7 @@ export function createIO({ backend, site, preload }) {
       return resp(eager.slice(), 200);
     }
     if (rel === "data/library.json.gz") {
-      const r = await indexFile(library.index.library, library.index.libraryTime);
+      const r = await indexFile(library.index.library);
       return r.ok ? r : resp(null, r.status);
     }
     if (rel.startsWith("fs/")) {
@@ -225,6 +247,13 @@ export function createIO({ backend, site, preload }) {
     } finally { done(); }
   }
   const blobUrl = async r => URL.createObjectURL(await r.blob());
+  // Drive: o cache devolve o cifrado; decifra aqui. Não confere -> a entrada sai do cache (não fica quebrada para sempre)
+  const blobDe = async (key, r, decifra, type) => {
+    let t;
+    try { t = await decifra(new Uint8Array(await r.arrayBuffer())); }
+    catch (err) { const c = await cache(); if (c) c.delete(key).catch(() => {}); throw err; }
+    return URL.createObjectURL(new Blob([t], { type }));
+  };
   // índice completo para o emulador (o seletor só precisa do library.json.gz): pedido em segundo plano
   let indexPromise = null;
   function loadIndex() {
@@ -252,12 +281,15 @@ export function createIO({ backend, site, preload }) {
       if (typeof ref === "string" && ref.startsWith("/")) return new URL("fs" + enc(ref), backend === "demo" ? demoRoot : ROOT).href;
       if (typeof ref === "string") ref = idv(ref);
       if (!drive) throw new Error("imagem do Drive sem login no Drive");
-      return blobUrl(await cached(cacheKey(ref), opts, async () => {
+      if (!keys || !keys.catalogo) throw new Error("imagem do Drive sem a chave do catálogo");
+      const key = cacheKey(ref);
+      // tipo vazio: o arquivo no Drive é opaco; o navegador reconhece a imagem pelo conteúdo
+      return blobDe(key, await cached(key, opts, async () => {
         const r = await drive.media(ref.id);
         stats.media++;
         if (!r.ok) throw new Error(`imagem HTTP ${r.status}`);
-        return { buf: await r.arrayBuffer(), type: r.headers.get("Content-Type") || "" };
-      }));
+        return { buf: await r.arrayBuffer(), type: "" };
+      }), b => decifrarArquivo(keys.catalogo, b), "");
     },
     // miniatura de capa: recorte [off, off+len) do pacote do sistema (library: sistema "capas", jogo "thumb"), lido com
     // Range. pack: hub/demo "@capas/<sistema>.bin?<versão>" (relativo à pasta do índice: data/ ou site/demo/data/);
@@ -270,8 +302,10 @@ export function createIO({ backend, site, preload }) {
         return blobUrl(await cached(key, opts, () => packSlice(url, off, len).then(exact)));
       }
       if (!drive) throw new Error("miniatura do Drive sem login no Drive");
-      const { id, v } = idv(pack);
-      return blobUrl(await cached(`${drive.api}/r36s-cache/thumb/${id}/${v}/${off}-${len}`, opts, async () => {
+      if (!keys || !keys.catalogo) throw new Error("miniatura do Drive sem a chave do catálogo");
+      const { id, v } = idv(pack), key = `${drive.api}/r36s-cache/thumb/${id}/${v}/${off}-${len}`;
+      // [off, off+len) é o registro cifrado (nonce || cifra || etiqueta); o cache guarda o registro
+      return blobDe(key, await cached(key, opts, async () => {
         const r = await drive.media(id, { range: [off, end] });
         stats.media++;
         if (!r.ok) throw new Error(`miniatura HTTP ${r.status}`);
@@ -281,7 +315,7 @@ export function createIO({ backend, site, preload }) {
           throw new Error(`miniatura: o Drive ignorou o Range (HTTP ${r.status})`);
         }
         return exact(await r.arrayBuffer());
-      }));
+      }), b => decifrarRegistro(keys.catalogo, b), type);
     },
     // limpa do cache os recortes de pacotes deste backend que não são mais os atuais (packs: "capas" dos sistemas do
     // library). As capas originais (destaque e ficha) e os recortes de outro backend ficam. Devolve quantos apagou.
@@ -308,23 +342,55 @@ export function createIO({ backend, site, preload }) {
     fetchFrom(base) {
       return (input, init) => route(new URL(typeof input === "string" ? input : input.url, base).href, init || {});
     },
-    // XHR síncrono do player (arquivos grandes sob demanda, por Range): mesma tradução, com o token na hora do send
+    // sistema que este usuário pode abrir: no Drive, só com a chave do sistema (hub/demo: todos)
+    canOpen(systemId) { return backend !== "drive" || !!(keys && keys["sistema:" + systemId]); },
+    // leitura síncrona [de, ate] de um arquivo do cartão (lazyFile do player, dentro do fread do núcleo): blocos
+    // cifrados por XHR síncrono + ChaCha20 síncrono (sem conferir a etiqueta, ver web/cripto.js). Só no Drive.
+    readSync(vpath, de, ate) {
+      if (backend !== "drive") throw new Error("io.readSync só existe no Drive");
+      const e = entryOf(vpath), k = keyOf(vpath);
+      if (!e || !e.id || !k) throw Object.assign(new Error(`sem acesso a ${vpath}`), { status: 403 });
+      ate = Math.min(ate, e.size - 1);
+      if (de > ate) return new Uint8Array(0);
+      const fx = faixa(de, ate, e.size);
+      const x = new XMLHttpRequest();
+      x.open("GET", drive.mediaUrl(e.id), false);
+      x.setRequestHeader("Range", `bytes=${fx.cDe}-${fx.cAte}`);
+      x.setRequestHeader("Authorization", drive.authHeader());
+      x.overrideMimeType("text/plain; charset=x-user-defined");
+      x.send();
+      if (x.status !== 206 && x.status !== 200) throw Object.assign(new Error(`HTTP ${x.status}`), { status: x.status });
+      const s = x.responseText;
+      let c = new Uint8Array(s.length);
+      for (let i = 0; i < s.length; i++) c[i] = s.charCodeAt(i) & 0xff;
+      if (x.status === 200 && c.length > fx.cAte - fx.cDe + 1) c = c.subarray(fx.cDe, fx.cAte + 1);   // Range ignorado
+      stats.media++; stats.bytes += c.length;
+      return decifrarIntervaloSync(k, c, de, ate, e.size);
+    },
+    // arquivo do cartão em pedaços decifrados de até `passo` bytes, em ordem (⬇ ROM no Drive: progresso e cancelar
+    // pelo signal). Falha lança Error com status (403 = sem a chave do sistema).
+    async *lerPedacos(vpath, { signal, passo = 8 << 20 } = {}) {
+      if (backend !== "drive") throw new Error("io.lerPedacos só existe no Drive");
+      await loadIndex();
+      const e = entryOf(vpath);
+      if (!e) throw Object.assign(new Error(`${vpath} não está no índice`), { status: 404 });
+      if (e.kind === "eager" && eager) { yield eager.slice(e.off, e.off + e.size); return; }
+      for (let de = 0; de < e.size; de += passo) {
+        const ate = Math.min(e.size, de + passo) - 1;
+        const r = await driveFile(vpath, e, { headers: { Range: `bytes=${de}-${ate}` }, signal });
+        if (r.status !== 206 && r.status !== 200) throw Object.assign(new Error(`${vpath}: HTTP ${r.status}`), { status: r.status });
+        yield new Uint8Array(await r.arrayBuffer());
+      }
+    },
+    // XHR do player: mesma tradução de URLs (hub: direto; demo: fs/ em site/demo/). No Drive os arquivos do cartão são
+    // cifrados: o lazyFile lê pelo io.readSync, não por aqui.
     xhrFrom(base) {
       return class extends XMLHttpRequest {
         open(method, url, async = true) {
           if (backend === "hub") return super.open(method, new URL(url, base).href, async);
           const abs = new URL(url, base).href, rel = relOf(abs);
-          this._r36sAuth = false;
-          if (rel && rel.startsWith("fs/")) {
-            if (backend === "demo") return super.open(method, new URL(rel, demoRoot).href, async);
-            const e = entryOf(vpathOf(rel));
-            if (e && e.id) { this._r36sAuth = true; return super.open(method, drive.mediaUrl(e.id), async); }
-          }
+          if (rel && rel.startsWith("fs/") && backend === "demo") return super.open(method, new URL(rel, demoRoot).href, async);
           return super.open(method, abs, async);
-        }
-        send(body) {
-          if (this._r36sAuth) this.setRequestHeader("Authorization", drive.authHeader());
-          return super.send(body);
         }
       };
     },
