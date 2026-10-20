@@ -192,12 +192,17 @@ export function createIO({ backend, site, preload }) {
     get eager() { return eager; },
     get drive() { return drive; },
     loadIndex,
-    // URL de uma imagem do library.json.gz: caminho do cartão "/roms/..." (hub/demo: URL direta, cache HTTP) ou, no Drive,
+    // URL de uma imagem do library.json.gz: caminho do cartão "/roms/..." (hub/demo: URL direta, cache HTTP), "@<caminho>"
+    // relativo à pasta do índice (hub: data/, demo: site/demo/data/; miniaturas "@capas/...") ou, no Drive,
     // "<id>[.<versão>]" (blob; {id, v} de índices antigos também vale).
     // A URL blob é de quem chamou: revogar (URL.revokeObjectURL) quando a imagem sair da tela.
     // opts.wanted(): conferido quando chega a vez na fila; se não quer mais (saiu da tela), nem baixa (AbortError).
     async image(ref, opts = {}) {
       if (typeof ref === "string" && ref.startsWith("/")) return new URL("fs" + enc(ref), backend === "demo" ? demoRoot : ROOT).href;
+      if (typeof ref === "string" && ref.startsWith("@")) {
+        if (backend === "drive") throw new Error(`imagem "${ref}": "@" (relativo ao índice) só existe no hub/demo; no Drive é "<id>.<versão>"`);
+        return new URL("data/" + enc(ref.slice(1)), backend === "demo" ? demoRoot : ROOT).href;
+      }
       if (typeof ref === "string") { const i = ref.indexOf("."); ref = i < 0 ? { id: ref, v: "" } : { id: ref.slice(0, i), v: ref.slice(i + 1) }; }
       if (!drive) throw new Error("imagem do Drive sem login no Drive");
       const c = await cache(), key = cacheKey(ref);

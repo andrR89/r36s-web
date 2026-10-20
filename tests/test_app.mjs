@@ -43,4 +43,11 @@ t("recentes: mais novo primeiro, sem repetir, até 20", () => {
   assert.equal(r.length, 20); assert.equal(r[0], "/r/3"); assert.equal(r.filter(x => x === "/r/3").length, 1);
 });
 t("localStorage quebrado não derruba", () => { mem.set("r36s-prefs-v1", "{nada"); assert.deepEqual(P.load(), { fav: [], recent: [] }); });
+// io.image: "@..." é relativo à pasta do índice do backend (miniaturas: "@capas/<sistema>/<arquivo>.webp")
+const { createIO } = await import("../web/io.js");
+const at = async (backend, ref) => createIO({ backend, site: backend === "drive" ? { drive: {}, library: {} } : null }).image(ref);
+assert.ok((await at("hub", "@capas/snes/a b#.webp")).endsWith("/web/data/capas/snes/a%20b%23.webp")); n++; console.log("ok io.image @ no hub");
+assert.ok((await at("demo", "@capas/snes/x.webp")).endsWith("/web/site/demo/data/capas/snes/x.webp")); n++; console.log("ok io.image @ no demo");
+await assert.rejects(at("drive", "@capas/snes/x.webp"), /@/); n++; console.log("ok io.image @ no Drive é erro");
+assert.ok((await at("hub", "/roms/snes/images/a.png")).endsWith("/web/fs/roms/snes/images/a.png")); n++; console.log("ok io.image caminho do cartão");
 console.log(`${n} testes ok`);

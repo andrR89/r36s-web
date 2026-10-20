@@ -12,8 +12,12 @@ cartão de ROMs, ou seja, /roms) dá o ID de cada arquivo; cada entrada de /roms
 md5 ou data). Fora de /roms tudo vira eager (não está no Drive: vai no eager.bin). "extra" lista arquivos do Drive nas
 pastas de sistema que o ES não lista mas o player pode pedir (faixas .bin de .cue, saves .srm/.dsv do cartão...).
 Grava também info.json (sistemas, jogos) para a tela da biblioteca. Os quatro (manifest.json, eager.bin, info.json, library.json.gz) vão para R36S/.web/ no Drive.
+
+--thumbs DIR: miniaturas WebP das capas (300 px de largura) em DIR/<sistema>/; cada jogo com imagem ganha "thumb" no
+library.json.gz. Hub/demo: DIR = <out>/capas (ref "@capas/...", relativa à pasta do índice), ex.
+`mkmanifest.py card web/data --thumbs web/data/capas`. Drive: DIR é a pasta que sobe para R36S/.web/capas (sobe.sh).
 """
-import argparse, datetime, gzip, json, os, re, sys, urllib.parse
+import argparse, concurrent.futures, datetime, gzip, hashlib, json, os, re, sys, urllib.parse
 import xml.etree.ElementTree as ET
 
 def read_systems(src):
@@ -163,8 +167,66 @@ def cited_by_sheet(real, vdir):
                  if (m := re.match(r'^\s*\d+\s+\d+\s+\d+\s+\d+\s+(?:"([^"]+)"|(\S+))', l))]
     return {os.path.normpath(vdir + "/" + n) for n in names}
 
-def write_library(out, src, tree, drive_ids, cores_path):
-    """library.json.gz: sistemas com jogos (ordem do cores.json, senão do es_systems.cfg) e os jogos com os metadados."""
+THUMB_W = 300
+
+def make_thumb(job):
+    """(fonte real, destino) -> (destino, bytes) ou (destino, erro). WebP de THUMB_W px de largura, qualidade 72, sem
+    metadados. Fonte menor que THUMB_W: aumenta com NEAREST (pixel art); maior: LANCZOS. Roda num processo à parte."""
+    real, dest = job
+    tmp = dest + ".tmp"
+    try:
+        from PIL import Image
+        with Image.open(real) as im:
+            im.load()
+            alpha = im.mode in ("RGBA", "LA", "PA") or (im.mode == "P" and "transparency" in im.info)
+            im = im.convert("RGBA" if alpha else "RGB")
+            h = max(1, round(im.height * THUMB_W / im.width))
+            im = im.resize((THUMB_W, h), Image.NEAREST if im.width < THUMB_W else Image.LANCZOS)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            im.info = {}   # sem exif/icc/xmp
+            im.save(tmp, "WEBP", quality=72, method=6)
+        os.replace(tmp, dest)
+        return dest, os.path.getsize(dest)
+    except Exception as e:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        return dest, e
+
+def thumb_name(system, source_vpath):
+    """<sistema>/<sha1 do vpath da fonte>[:16].webp (o mesmo nome no disco, no hub e em R36S/.web/capas do Drive)."""
+    return f"{system}/{hashlib.sha1(source_vpath.encode('utf-8')).hexdigest()[:16]}.webp"
+
+def make_thumbs(thumbs, wanted):
+    """wanted: {nome: (vpath da fonte, real)}. Gera o que falta (ou ficou mais velho que a fonte) em paralelo;
+    devolve o conjunto dos nomes que existem."""
+    jobs, ok, skipped = [], set(), 0
+    for name, (_, real) in wanted.items():
+        dest = os.path.join(thumbs, name)
+        try:
+            if os.path.getmtime(dest) >= os.path.getmtime(real):
+                ok.add(name); skipped += 1; continue
+        except OSError:
+            pass
+        jobs.append((real, dest))
+    made, size, errors = 0, 0, []
+    if jobs:
+        with concurrent.futures.ProcessPoolExecutor(min(os.cpu_count() or 1, len(jobs))) as ex:
+            for dest, r in ex.map(make_thumb, jobs, chunksize=8):
+                if isinstance(r, Exception):
+                    errors.append((dest, r))
+                else:
+                    ok.add(os.path.relpath(dest, thumbs).replace(os.sep, "/")); made += 1; size += r
+    total = sum(os.path.getsize(os.path.join(thumbs, n)) for n in ok)
+    print(f"miniaturas: {made} geradas ({size/1e3:.0f} KB), {skipped} já prontas, {len(errors)} com erro; {len(ok)} no total, {total/1e3:.0f} KB")
+    if errors:
+        print(f"aviso: {len(errors)} imagens sem miniatura, ex.: {[f'{d}: {e}' for d, e in errors[:3]]}", file=sys.stderr)
+    return ok
+
+def write_library(out, src, tree, drive_ids, cores_path, thumbs=None):
+    """library.json.gz: sistemas com jogos (ordem do cores.json, senão do es_systems.cfg) e os jogos com os metadados.
+    thumbs: pasta das miniaturas WebP das capas (make_thumbs). Cada jogo com box/shot ganha "thumb": hub/demo =
+    "@<caminho relativo à pasta do índice>" (use thumbs = <out>/capas: "@capas/<sistema>/<arquivo>.webp"); Drive =
+    "<id>.<v6>" da entrada ".web/capas/<sistema>/<arquivo>.webp" da listagem (ainda não subiu: sem thumb)."""
     systems = read_systems_full(src)
     cores = {}
     if cores_path and os.path.isfile(cores_path):
@@ -213,6 +275,9 @@ def write_library(out, src, tree, drive_ids, cores_path):
                 r = ref(m.get(k))
                 if r:
                     g[k] = r
+            if thumbs and ("box" in g or "shot" in g):
+                source = m["box"] if "box" in g else m["shot"]
+                g["_thumb"] = (thumb_name(folder, source), source)
             games.append(g)
         if not games:
             continue
@@ -220,6 +285,20 @@ def write_library(out, src, tree, drive_ids, cores_path):
         out_systems.append({"id": folder, "name": s["fullname"], "count": len(games), "playable": bool(c.get("core")),
                             "note": c.get("note") or "", "order": c.get("order", 1000 + pos)})
         out_games += games
+    if thumbs:
+        wanted = {g["_thumb"][0]: (g["_thumb"][1], files[g["_thumb"][1]][0]) for g in out_games if "_thumb" in g}
+        have = make_thumbs(thumbs, wanted)
+        rel = os.path.relpath(thumbs, out).replace(os.sep, "/")
+        if drive_ids is None and rel.startswith(".."):
+            print(f"aviso: --thumbs ({thumbs}) fora da pasta do índice ({out}): o navegador não acha as miniaturas", file=sys.stderr)
+        for g in out_games:
+            name = g.pop("_thumb", (None,))[0]
+            if name not in have:
+                continue
+            if drive_ids is None:
+                g["thumb"] = "@" + rel + "/" + name
+            elif (d := drive_ids.get(".web/capas/" + name)):
+                g["thumb"] = d["id"] + ("." + d["v"][:6] if d["v"] else "")
     out_systems.sort(key=lambda s: s["order"])
     for s in out_systems:
         del s["order"]
@@ -231,7 +310,7 @@ def write_library(out, src, tree, drive_ids, cores_path):
             z.write(raw)
     return len(out_games)
 
-def build(src, out, drive_ids=None, cores=None):
+def build(src, out, drive_ids=None, cores=None, thumbs=None):
     os.makedirs(out, exist_ok=True)
     systems = read_systems(src)
     if systems is None:
@@ -273,7 +352,7 @@ def build(src, out, drive_ids=None, cores=None):
         write_info(out, files, systems)
         if missing:
             print(f"aviso: {len(missing)} arquivos de /roms sem ID no Drive (não subiram?), ex.: {missing[:3]}", file=sys.stderr)
-    write_library(out, src, tree, drive_ids, cores)
+    write_library(out, src, tree, drive_ids, cores, thumbs)
     with open(os.path.join(out, "manifest.json"), "w") as f:
         json.dump(manifest, f, ensure_ascii=False, separators=(",", ":"))
     return len(files), off
@@ -310,7 +389,9 @@ if __name__ == "__main__":
     ap.add_argument("--drive-ids", metavar="LSJSON", help="saída de `rclone lsjson -R --hash gdrive:R36S` (modo Drive)")
     ap.add_argument("--cores", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "web", "data", "cores.json"),
                     help="mapa sistema -> núcleo (data/mkcores.py): playable/nota/ordem no library.json")
+    ap.add_argument("--thumbs", metavar="DIR", help="miniaturas WebP das capas em DIR/<sistema>/ (hub/demo: <out>/capas; "
+                    "Drive: a pasta que sobe para R36S/.web/capas)")
     a = ap.parse_args()
-    n, size = build(a.src, a.out, read_lsjson(a.drive_ids) if a.drive_ids else None, a.cores)
+    n, size = build(a.src, a.out, read_lsjson(a.drive_ids) if a.drive_ids else None, a.cores, a.thumbs)
     msize = os.path.getsize(os.path.join(a.out, "manifest.json"))
     print(f"{n} arquivos, eager.bin {size/1e6:.1f} MB, manifest.json {msize/1e6:.1f} MB")

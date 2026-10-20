@@ -55,10 +55,16 @@ EmulationStation) não é usada pelo site: `build/upload/sobe.sh` deixa ela de f
 
 ```bash
 cd ~/Workspace/web-ports/r36s
-rclone lsjson -R --hash --files-only gdrive:R36S > /tmp/r36s-drive.json      # caminhos + IDs + md5
-python3 data/mkmanifest.py card /tmp/r36s-web --drive-ids /tmp/r36s-drive.json
+# miniaturas WebP das capas (~16 KB cada; só refaz as que mudaram) e subida para R36S/.web/capas
+python3 data/mkmanifest.py card /tmp/r36s-web --thumbs build/upload/capas
+rclone copy build/upload/capas gdrive:R36S/.web/capas --progress
+rclone lsjson -R --hash --files-only gdrive:R36S > /tmp/r36s-drive.json      # caminhos + IDs + md5 (com as miniaturas)
+python3 data/mkmanifest.py card /tmp/r36s-web --drive-ids /tmp/r36s-drive.json --thumbs build/upload/capas
 rclone copy /tmp/r36s-web gdrive:R36S/.web --progress                         # manifest.json, eager.bin, library.json.gz, info.json
 ```
+
+`build/upload/sobe.sh` faz esses passos (função `indice`). Jogo cuja miniatura não está na listagem do Drive fica sem
+`thumb` e o seletor usa a capa original.
 
 `card/` é a árvore local de sempre (`data/mkcard.py`: ROOTFS + `card/roms` -> cartão). O script avisa quantos arquivos
 de `/roms` não têm ID (não subiram). Refazer o índice sempre que mudar o cartão (novo jogo, capa, gamelist).
