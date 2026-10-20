@@ -155,13 +155,15 @@ publicação, o gerador faz uma miniatura WebP por jogo com imagem:
 
 - Fonte: `box`, senão `shot` (a mesma que a capa usa hoje). 300 px de largura, proporção mantida, qualidade 72,
   sem metadados. Alvo ~10–20 KB.
-- `data/mkmanifest.py --thumbs DIR`: grava em `DIR/<sistema>/<sha1(vpath da fonte)[:16]>.webp`; não refaz se a miniatura
-  existe e é mais nova que a fonte; em paralelo (processos). Sem `--thumbs`, nada muda.
-- `library.json.gz` ganha `thumb` em cada jogo com miniatura: hub/demo = `"@capas/<sistema>/<arquivo>.webp"` (relativo
-  à pasta do índice: `data/` no hub, `site/demo/data/` no demo); Drive = `"<id>.<v6>"` da miniatura enviada para
-  `R36S/.web/capas/`, achada na listagem do Drive (`.web/capas/...`); se a miniatura ainda não subiu, o jogo fica sem
-  `thumb` (usa `box`/`shot` como hoje).
-- Seletor: capas das fileiras, da grade e da busca usam `thumb`, senão `box`, senão `shot`. Destaque e ficha continuam
-  com a imagem original. `io.image` entende o prefixo `@` (relativo ao índice do backend).
-- Publicação no Drive (`build/upload/sobe.sh indice`): gera as miniaturas em `build/upload/capas`, `rclone copy` para
-  `gdrive:R36S/.web/capas`, lista o Drive de novo e gera o índice com os IDs. Hub: `--thumbs web/data/capas`.
+- `data/mkmanifest.py --thumbs CACHE`: cada miniatura vai para o cache `CACHE/<sistema>/<sha1(vpath da fonte)[:16]>.webp`
+  (não refaz se existe e é mais nova que a fonte; em paralelo). Depois, um **pacote por sistema**:
+  `<saída>/capas/<sistema>.bin` = as miniaturas do sistema juntas, na ordem dos jogos (determinístico).
+- `library.json.gz`: cada sistema com pacote ganha `capas` (hub/demo `"@capas/<sistema>.bin?<sha1[:8]>"`, relativo à
+  pasta do índice; Drive `"<id>.<v6>"` de `R36S/.web/capas/<sistema>.bin`); cada jogo com miniatura ganha
+  `thumb: [início, tamanho]`. Os deslocamentos comprimem bem: o índice do Drive fica em ~893 KB (sem miniaturas, 826 KB).
+- Seletor: capas das fileiras, da grade e da busca leem a miniatura do pacote por Range (`io.thumb`, mesmo cache e
+  fila das imagens); sem pacote, `box`/`shot` como antes. Destaque e ficha continuam com a imagem original.
+- Publicação no Drive (`build/upload/sobe.sh indice`): gera os pacotes, sobe para `gdrive:R36S/.web/capas` (26 arquivos,
+  ~100 MB), lista o Drive de novo e gera o índice com os IDs. Hub: `--thumbs web/data/.capas-cache`.
+- Números (2026-10-19): 6.440 miniaturas, 16 KB em média; primeira tela do celular ~330 KB de capas (antes ~3 MB);
+  GBA inteiro 17 MB (antes 220 MB).
