@@ -18,7 +18,7 @@ juntadas num pacote por sistema em <out>/capas/<sistema>.bin; o library.json.gz 
 [início, tamanho] de cada jogo ("thumb"); o navegador lê com Range. Hub: `mkmanifest.py card web/data --thumbs
 web/data/.capas-cache`; Drive: os pacotes sobem para R36S/.web/capas (build/upload/sobe.sh).
 """
-import argparse, concurrent.futures, datetime, gzip, hashlib, json, os, re, sys, urllib.parse
+import argparse, concurrent.futures, datetime, gzip, hashlib, json, os, re, shutil, sys, urllib.parse
 import xml.etree.ElementTree as ET
 
 def read_systems(src):
@@ -168,12 +168,14 @@ def cited_by_sheet(real, vdir):
                  if (m := re.match(r'^\s*\d+\s+\d+\s+\d+\s+\d+\s+(?:"([^"]+)"|(\S+))', l))]
     return {os.path.normpath(vdir + "/" + n) for n in names}
 
-THUMB_W = 300
+THUMB_W, THUMB_Q, THUMB_M = 300, 72, 6
+THUMB_PARAMS = f"w{THUMB_W}q{THUMB_Q}m{THUMB_M}"   # entra no nome do cache: mudar um parâmetro refaz as miniaturas
 
 def make_thumb(job):
-    """(fonte real, destino) -> (destino, bytes) ou (destino, erro). WebP de THUMB_W px de largura, qualidade 72, sem
-    metadados. Fonte menor que THUMB_W: aumenta com NEAREST (pixel art); maior: LANCZOS. Roda num processo à parte."""
-    real, dest = job
+    """(fonte real, destino, largura, qualidade, método) -> (destino, bytes) ou (destino, erro). WebP sem metadados;
+    fonte menor que a largura: aumenta com NEAREST (pixel art); maior: LANCZOS. A miniatura fica com a data (mtime) da
+    fonte. Roda num processo à parte (por isso os parâmetros vêm no job)."""
+    real, dest, w, q, method = job
     tmp = dest + ".tmp"
     try:
         from PIL import Image
@@ -181,11 +183,13 @@ def make_thumb(job):
             im.load()
             alpha = im.mode in ("RGBA", "LA", "PA") or (im.mode == "P" and "transparency" in im.info)
             im = im.convert("RGBA" if alpha else "RGB")
-            h = max(1, round(im.height * THUMB_W / im.width))
-            im = im.resize((THUMB_W, h), Image.NEAREST if im.width < THUMB_W else Image.LANCZOS)
+            h = max(1, round(im.height * w / im.width))
+            im = im.resize((w, h), Image.NEAREST if im.width < w else Image.LANCZOS)
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             im.info = {}   # sem exif/icc/xmp
-            im.save(tmp, "WEBP", quality=72, method=6)
+            im.save(tmp, "WEBP", quality=q, method=method)
+        st = os.stat(real)
+        os.utime(tmp, ns=(st.st_atime_ns, st.st_mtime_ns))
         os.replace(tmp, dest)
         return dest, os.path.getsize(dest)
     except Exception as e:
@@ -194,21 +198,22 @@ def make_thumb(job):
         return dest, e
 
 def thumb_name(system, source_vpath):
-    """<sistema>/<sha1 do vpath da fonte>[:16].webp (o mesmo nome no disco, no hub e em R36S/.web/capas do Drive)."""
-    return f"{system}/{hashlib.sha1(source_vpath.encode('utf-8')).hexdigest()[:16]}.webp"
+    """<sistema>/<sha1(vpath da fonte + THUMB_PARAMS)>[:16].webp (nome no cache)."""
+    return f"{system}/{hashlib.sha1(f'{source_vpath}\0{THUMB_PARAMS}'.encode('utf-8')).hexdigest()[:16]}.webp"
 
 def make_thumbs(thumbs, wanted):
-    """wanted: {nome: (vpath da fonte, real)}. Gera o que falta (ou ficou mais velho que a fonte) em paralelo;
-    devolve o conjunto dos nomes que existem."""
+    """wanted: {nome: (vpath da fonte, real)}. Gera em paralelo o que falta ou cuja data (mtime) não é a da fonte
+    (fonte mudou, para mais nova ou mais velha); devolve o conjunto dos nomes que existem. Mudança de conteúdo da fonte
+    sem mudar a data não é percebida (apagar o cache)."""
     jobs, ok, skipped = [], set(), 0
     for name, (_, real) in wanted.items():
         dest = os.path.join(thumbs, name)
         try:
-            if os.path.getmtime(dest) >= os.path.getmtime(real):
+            if os.stat(dest).st_mtime_ns == os.stat(real).st_mtime_ns:
                 ok.add(name); skipped += 1; continue
         except OSError:
             pass
-        jobs.append((real, dest))
+        jobs.append((real, dest, THUMB_W, THUMB_Q, THUMB_M))
     made, size, errors = 0, 0, []
     if jobs:
         with concurrent.futures.ProcessPoolExecutor(min(os.cpu_count() or 1, len(jobs))) as ex:
@@ -227,12 +232,13 @@ def write_packs(out, thumbs, systems, games, files, drive_ids):
     """Miniaturas (cache em thumbs/<sistema>/) -> um pacote por sistema em <out>/capas/<sistema>.bin: concatenação na
     ordem dos jogos no library (determinística; miniatura repetida entra uma vez). Jogo: "thumb": [início, tamanho];
     sistema: "capas" = "@capas/<sistema>.bin?<sha1[:8]>" (hub/demo; a versão invalida o cache do navegador) ou
-    "<id>.<v6>" de .web/capas/<sistema>.bin na listagem do Drive (não subiu: nem "capas" nem "thumb")."""
+    "<id>.<v6>" de .web/capas/<sistema>.bin na listagem do Drive, só se o md5 do pacote no Drive (v = md5[:10]) é o do
+    pacote gerado agora; não subiu ou é outro: nem "capas" nem "thumb" (os recortes não valeriam)."""
     wanted = {g["_thumb"][0]: (g["_thumb"][1], files[g["_thumb"][1]][0]) for g in games if "_thumb" in g}
     have = make_thumbs(thumbs, wanted)
     packs = os.path.join(out, "capas")
     os.makedirs(packs, exist_ok=True)
-    written, total = set(), 0
+    written, total, stale = set(), 0, []
     for s in systems:
         mine = [g for g in games if g["s"] == s["id"] and "_thumb" in g]
         data, at = bytearray(), {}
@@ -262,15 +268,25 @@ def write_packs(out, thumbs, systems, games, files, drive_ids):
         written.add(fn); total += len(data)
         if drive_ids is None:
             s["capas"] = f"@capas/{fn}?{hashlib.sha1(data).hexdigest()[:8]}"
-        elif (d := drive_ids.get(".web/capas/" + fn)):
-            s["capas"] = d["id"] + ("." + d["v"][:6] if d["v"] else "")
         else:
-            for g in mine:
-                g.pop("thumb", None)
+            d = drive_ids.get(".web/capas/" + fn)
+            if d and d["v"] and hashlib.md5(data).hexdigest()[:len(d["v"])] == d["v"]:
+                s["capas"] = d["id"] + "." + d["v"][:6]
+            else:
+                stale.append(fn if d else fn + " (não subiu)")
+                for g in mine:
+                    g.pop("thumb", None)
     for fn in os.listdir(packs):
         p = os.path.join(packs, fn)
-        if fn not in written and os.path.isfile(p):   # sistema que perdeu as imagens, sobra de geração antiga
+        if fn in written:
+            continue
+        if os.path.isdir(p):   # sobra do formato antigo (uma miniatura por arquivo)
+            shutil.rmtree(p)
+        else:   # sistema que perdeu as imagens, sobra de geração antiga
             os.remove(p)
+    if stale:
+        print(f"aviso: {len(stale)} pacotes de capas diferentes no Drive (subir <out>/capas e listar de novo); "
+              f"sistemas sem miniatura: {stale[:5]}", file=sys.stderr)
     print(f"pacotes de capas: {len(written)} em {packs}, {total/1e6:.1f} MB"
           + ("" if drive_ids is None else f"; {sum('capas' in s for s in systems)} com ID no Drive"))
 
@@ -325,8 +341,9 @@ def write_library(out, src, tree, drive_ids, cores_path, thumbs=None):
                 r = ref(m.get(k))
                 if r:
                     g[k] = r
-            if thumbs and ("box" in g or "shot" in g):
-                source = m["box"] if "box" in g else m["shot"]
+            # fonte da miniatura pelo arquivo local (não pelo ID no Drive): a passada do Drive monta o mesmo pacote
+            source = next((m[k] for k in ("box", "shot") if m.get(k) in files), None)
+            if thumbs and source:
                 g["_thumb"] = (thumb_name(folder, source), source)
             games.append(g)
         if not games:

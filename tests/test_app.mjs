@@ -78,4 +78,58 @@ await drv.thumb("1Pack.abcdef", 30, 5);
 assert.deepEqual(media, [["1Pack", [30, 34]]]); assert.deepEqual(await lastBlob(), [30, 31, 32, 33, 34]);
 n++; console.log("ok io.thumb no Drive: media(id, range)");
 await assert.rejects(drv.thumb("@capas/snes.bin", 0, 1), /@/); n++; console.log("ok io.thumb @ no Drive é erro");
+// servidor sem Range: chamadas ao mesmo tempo esperam um download só; só um pacote inteiro fica na memória
+{
+  globalThis.fakeIgnoresRange = true; calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (u, i) => { await new Promise(r => setTimeout(r, 20)); return realFetch(u, i); };
+  const io3 = createIO({ backend: "demo" });
+  await Promise.all([io3.thumb("@capas/a.bin?1", 0, 2), io3.thumb("@capas/a.bin?1", 4, 2), io3.thumb("@capas/a.bin?1", 8, 2)]);
+  assert.equal(calls.length, 1); n++; console.log("ok io.thumb sem Range: chamadas simultâneas, um download");
+  await io3.thumb("@capas/b.bin?1", 0, 2); await io3.thumb("@capas/a.bin?1", 12, 2);
+  assert.equal(calls.length, 3); n++; console.log("ok io.thumb sem Range: um pacote inteiro na memória por vez");
+  globalThis.fetch = realFetch; globalThis.fakeIgnoresRange = false;
+}
+// 206 com tamanho errado: erro (não guarda recorte quebrado)
+{
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(pack.slice(0, 3), { status: 206 });
+  await assert.rejects(createIO({ backend: "hub" }).thumb("@capas/c.bin?1", 0, 5), /tamanho|bytes/);
+  globalThis.fetch = realFetch; n++; console.log("ok io.thumb: 206 de tamanho errado é erro");
+}
+// Drive que ignorou o Range (200 com o pacote todo): cancela o corpo e falha, não baixa o pacote por capa
+{
+  let canceled = false;
+  const body = () => new ReadableStream({ pull(c) { c.enqueue(pack); }, cancel() { canceled = true; } });
+  const d = createIO({ backend: "drive", site: { drive: { api: "https://x", media: async () => new Response(body(), { status: 200, headers: { "Content-Length": "100000" } }) }, library: {} } });
+  await assert.rejects(d.thumb("1P.abc", 10, 4), /Range/);
+  assert.ok(canceled); n++; console.log("ok io.thumb no Drive: 200 sem Range cancela e falha");
+  const d2 = createIO({ backend: "drive", site: { drive: { api: "https://x", media: async () => new Response(pack.slice(0, 3), { status: 206 }) }, library: {} } });
+  await assert.rejects(d2.thumb("1P.abc", 0, 5), /tamanho|bytes/); n++; console.log("ok io.thumb no Drive: 206 de tamanho errado é erro");
+}
+// limpeza do cache: some recorte de pacote que não é mais o atual; capas originais e o outro backend ficam
+{
+  const store = new Map();
+  globalThis.caches = { open: async () => ({
+    match: async k => (store.has(String(k)) ? store.get(String(k)).clone() : undefined),
+    put: async (k, r) => { store.set(String(k), r); },
+    keys: async () => [...store.keys()].map(url => ({ url })),
+    delete: async k => store.delete(typeof k === "string" ? k : k.url) }) };
+  const drive = { api: "https://x", media: async (id, o) => new Response(pack.slice(o.range[0], o.range[1] + 1), { status: 206 }) };
+  const h = createIO({ backend: "hub", site: null }), dm = createIO({ backend: "demo" }), dr = createIO({ backend: "drive", site: { drive, library: {} } });
+  await h.thumb("@capas/snes.bin?old", 0, 2); await h.thumb("@capas/snes.bin?new", 0, 2); await h.thumb("@capas/gba.bin?g1", 2, 2);
+  await dm.thumb("@capas/nes.bin?d1", 0, 2);
+  await dr.thumb("1Snes.old111", 0, 2); await dr.thumb("1Snes.new222", 0, 2);
+  const orig = "https://x/r36s-cache/1Cover/abc"; store.set(orig, new Response("png"));
+  const before = [...store.keys()];
+  assert.equal(before.length, 7);
+  assert.equal(await h.pruneThumbs(["@capas/snes.bin?new", "@capas/gba.bin?g1"]), 1);
+  assert.equal(await dr.pruneThumbs(["1Snes.new222"]), 1);
+  const left = [...store.keys()];
+  assert.ok(!left.some(k => k.includes("snes.bin?old") || k.includes("/1Snes/old111/")));
+  assert.ok(left.some(k => k.includes("nes.bin?d1")) && left.includes(orig) && left.some(k => k.includes("/1Snes/new222/")));
+  assert.equal(left.length, 5); n++; console.log("ok io.pruneThumbs: só recortes de pacotes velhos do próprio backend");
+  // e o recorte guardado é usado na próxima vez (sem rede)
+  calls = []; await h.thumb("@capas/gba.bin?g1", 2, 2); assert.equal(calls.length, 0); n++; console.log("ok io.thumb: recorte do cache");
+}
 console.log(`${n} testes ok`);

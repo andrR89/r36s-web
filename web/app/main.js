@@ -141,3 +141,6 @@ status.remove();
 window.r36s.ready = true;
 window.r36s.readyMs = Math.round(performance.now() - t0);
 setTimeout(() => io.loadIndex().catch(e => console.warn("[r36s] índice do emulador", e)), 1500);   // pronto para o ▶
+// recortes de miniaturas de pacotes antigos (o índice mudou) saem do cache; uma vez, depois da primeira tela
+setTimeout(() => io.pruneThumbs(lib.systems.map(s => s.capas).filter(Boolean))
+  .then(n => { if (n) console.info(`[r36s] ${n} miniaturas antigas saíram do cache`); }, e => console.warn("[r36s] limpeza das miniaturas", e)), 5000);

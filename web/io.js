@@ -180,7 +180,35 @@ export function createIO({ backend, site, preload }) {
     const q = ref.indexOf("?");
     return new URL("data/" + enc(q < 0 ? ref.slice(1) : ref.slice(1, q)) + (q < 0 ? "" : ref.slice(q)), backend === "demo" ? demoRoot : ROOT).href;
   };
-  const whole = new Map();   // URL do pacote -> Promise<ArrayBuffer> (servidor que ignorou o Range)
+  // recorte de um pacote (hub/demo) com Range. Servidor que ignora o Range (200 com o pacote todo): o primeiro pedido
+  // de cada pacote é a "sonda" e os outros esperam por ela; o pacote inteiro fica na memória (um por vez) e os recortes
+  // saem dele.
+  const rangeOk = new Set(), probing = new Map();
+  let whole = null;   // { url, p: Promise<ArrayBuffer> }
+  async function packSlice(url, off, len) {
+    const range = { headers: { Range: `bytes=${off}-${off + len - 1}` } };
+    for (;;) {
+      if (rangeOk.has(url)) break;
+      if (whole && whole.url === url) return (await whole.p).slice(off, off + len);
+      const wait = probing.get(url);
+      if (!wait) break;
+      await wait.catch(() => {});
+    }
+    const probe = !rangeOk.has(url);
+    let done;
+    if (probe) probing.set(url, new Promise(res => (done = res)));
+    try {
+      const r = await fetch(url, range);
+      if (!r.ok) throw new Error(`miniatura HTTP ${r.status}`);
+      if (r.status === 206) { rangeOk.add(url); return await r.arrayBuffer(); }
+      const w = { url, p: r.arrayBuffer() };
+      whole = w;
+      w.p.catch(() => { if (whole === w) whole = null; });
+      return (await w.p).slice(off, off + len);
+    } finally {
+      if (probe) { probing.delete(url); done(); }
+    }
+  }
   // Cache API (chave = URL) ou, se não tem, get() na fila (PARALLEL de cada vez); get -> {buf, type}
   async function cached(key, opts, get) {
     const c = await cache();
@@ -236,19 +264,10 @@ export function createIO({ backend, site, preload }) {
     // Drive "<id>.<versão>". URL blob (revogar como a do image); mesmo cache, fila e opts.wanted do image.
     async thumb(pack, off, len, opts = {}) {
       const type = "image/webp", end = off + len - 1;
+      const exact = buf => { if (buf.byteLength !== len) throw new Error(`miniatura: ${buf.byteLength} bytes, tamanho esperado ${len}`); return { buf, type }; };
       if (pack.startsWith("@")) {
         const url = atUrl(pack), key = `${url}${url.includes("?") ? "&" : "?"}r36s-thumb=${off}-${len}`;
-        return blobUrl(await cached(key, opts, async () => {
-          const w = whole.get(url);
-          if (w) return { buf: (await w).slice(off, off + len), type };
-          const r = await fetch(url, { headers: { Range: `bytes=${off}-${end}` } });
-          if (!r.ok) throw new Error(`miniatura HTTP ${r.status}`);
-          if (r.status === 206) return { buf: await r.arrayBuffer(), type };
-          // servidor sem Range (200 com o pacote todo): guarda o pacote e recorta dele as próximas
-          const p = r.arrayBuffer();
-          whole.set(url, p); p.catch(() => whole.delete(url));
-          return { buf: (await p).slice(off, off + len), type };
-        }));
+        return blobUrl(await cached(key, opts, () => packSlice(url, off, len).then(exact)));
       }
       if (!drive) throw new Error("miniatura do Drive sem login no Drive");
       const { id, v } = idv(pack);
@@ -256,9 +275,33 @@ export function createIO({ backend, site, preload }) {
         const r = await drive.media(id, { range: [off, end] });
         stats.media++;
         if (!r.ok) throw new Error(`miniatura HTTP ${r.status}`);
-        const buf = await r.arrayBuffer();
-        return { buf: r.status === 206 ? buf : buf.slice(off, off + len), type };
+        // 200 = Range ignorado: o corpo é o pacote inteiro (MBs). Não baixa por capa: cancela e falha (a <img> mostra o nome)
+        if (r.status !== 206 && !(off === 0 && +r.headers.get("Content-Length") === len)) {
+          if (r.body) r.body.cancel().catch(() => {});
+          throw new Error(`miniatura: o Drive ignorou o Range (HTTP ${r.status})`);
+        }
+        return exact(await r.arrayBuffer());
       }));
+    },
+    // limpa do cache os recortes de pacotes deste backend que não são mais os atuais (packs: "capas" dos sistemas do
+    // library). As capas originais (destaque e ficha) e os recortes de outro backend ficam. Devolve quantos apagou.
+    async pruneThumbs(packs) {
+      const c = await cache();
+      if (!c) return 0;
+      const drivePrefix = drive && `${drive.api}/r36s-cache/thumb/`;
+      const mine = backend === "drive" ? drivePrefix : new URL("data/", backend === "demo" ? demoRoot : ROOT).href;
+      if (!mine) return 0;
+      const keep = new Set(packs.map(p => (backend === "drive" ? `${drivePrefix}${idv(p).id}/${idv(p).v}/` : atUrl(p))));
+      let n = 0;
+      for (const k of await c.keys().catch(() => [])) {
+        const u = k.url;
+        if (!u.startsWith(mine)) continue;
+        let base;
+        if (backend === "drive") base = u.slice(0, u.lastIndexOf("/") + 1);
+        else { const i = u.search(/[?&]r36s-thumb=/); if (i < 0) continue; base = u.slice(0, i); }
+        if (!keep.has(base)) { await c.delete(k).catch(() => {}); n++; }
+      }
+      return n;
     },
     // ROM para salvar (hub/demo): link direto
     romUrl(vpath) { return new URL("fs" + enc(vpath), backend === "demo" ? demoRoot : ROOT).href; },
