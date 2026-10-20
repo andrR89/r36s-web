@@ -19,6 +19,8 @@ const args = process.argv.slice(2), cmd = args[0];
 const opt = (n, d) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : d; };
 const MESTRA = opt("--mestra", join(homedir(), ".config/r36s/mestra"));
 const FORA = /^(ports|themes|System Volume Information)$/;
+// nome de um arquivo da pasta que sobe (nomeOpaco); ".tmp" = sobra de uma gravação interrompida
+const OPACO = /^[0-9a-f]{24}$/, OPACO_TMP = /^[0-9a-f]{24}\.tmp$/;
 
 function mestra({ criar = false } = {}) {
   if (!existsSync(MESTRA)) {
@@ -70,6 +72,15 @@ async function cifrar() {
   const card = opt("--card"), claro = opt("--claro"), out = opt("--out"), arqMapa = opt("--mapa");
   if (!card || !claro || !out || !arqMapa) throw new Error("uso: cifrar --card C --claro D --out O --mapa M");
   if (arqMapa.startsWith(out + "/")) throw new Error("o mapa tem os nomes reais: fora da pasta que sobe");
+  // a limpeza do fim apaga de O o que não está no mapa: um --out errado (a raiz do disco externo, um DADOS vazio)
+  // apagaria tudo. Só seguimos se O não existe ou só tem arquivos com nome opaco.
+  if (existsSync(out)) {
+    const estranhos = readdirSync(out, { withFileTypes: true })
+      .filter(e => !e.isFile() || !(OPACO.test(e.name) || OPACO_TMP.test(e.name))).map(e => e.name);
+    if (estranhos.length)
+      throw new Error(`${out} não parece a pasta cifrada (tem ${estranhos.slice(0, 3).join(", ")}${estranhos.length > 3 ? ", ..." : ""}); ` +
+                      "nada foi alterado: confira o --out");
+  }
   mkdirSync(out, { recursive: true });
   const chave = await chaves(mestra()), nomes = await chave("nomes"), cat = await chave("catalogo");
   const lib = library(claro), antigo = lerMapa(arqMapa), mapa = { arquivos: {}, capas: {}, indice: antigo.indice || {} };
@@ -103,7 +114,8 @@ async function cifrar() {
   }
   const validos = new Set([...Object.values(mapa.arquivos), ...Object.values(mapa.capas), ...Object.values(mapa.indice)].map(x => x.o));
   let apagados = 0;
-  for (const f of readdirSync(out)) if (!validos.has(f)) { rmSync(join(out, f)); apagados++; }
+  for (const e of readdirSync(out, { withFileTypes: true }))
+    if (e.isFile() && (OPACO.test(e.name) || OPACO_TMP.test(e.name)) && !validos.has(e.name)) { rmSync(join(out, e.name)); apagados++; }
   gravar(arqMapa, JSON.stringify(mapa));
   console.log(`${Object.keys(mapa.arquivos).length} arquivos, ${feitos} cifrados (${(bytes / 2 ** 20).toFixed(0)} MiB), ` +
               `${Object.keys(mapa.capas).length} pacotes de miniaturas, ${apagados} apagados de ${out}`);
@@ -177,4 +189,5 @@ function ponteiro() {
 
 const cmds = { mestra: () => { mestra({ criar: true }); console.log(`mestra em ${MESTRA}`); }, cifrar, indice, ponteiro };
 if (!cmds[cmd]) { console.error(readFileSync(new URL(import.meta.url)).toString().split("\n").slice(1, 11).join("\n")); process.exit(1); }
-await cmds[cmd]();
+try { await cmds[cmd](); }
+catch (e) { console.error(`erro: ${e.message}`); process.exit(1); }

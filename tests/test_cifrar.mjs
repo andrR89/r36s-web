@@ -92,11 +92,31 @@ test("cifrar de novo: só o que mudou; arquivo removido sai de out", async () =>
   execFileSync("python3", ["-I", join(ROOT, "data/mkmanifest.py"), card, claro]);
   run("mestra", "--mestra", mestra);
   run("cifrar", "--card", card, "--claro", claro, "--out", out, "--mapa", mapa, "--mestra", mestra);
-  const antes = Object.fromEntries(readdirSync(out).map(f => [f, readFileSync(join(out, f)).toString("hex")]));
+  const antes = Object.fromEntries(readdirSync(out).map(f => [f, readFileSync(join(out, f))]));
   const sai = JSON.parse(readFileSync(mapa, "utf8")).arquivos["/roms/psx/Disco.bin"].o;
   execFileSync("rm", [join(card, "roms/psx/Disco.bin")]);
   const log = run("cifrar", "--card", card, "--claro", claro, "--out", out, "--mapa", mapa, "--mestra", mestra);
   assert.match(log, /0 cifrados/);
   assert.ok(!existsSync(join(out, sai)));
-  for (const f of readdirSync(out)) assert.equal(readFileSync(join(out, f)).toString("hex"), antes[f]);
+  for (const f of readdirSync(out)) iguais(readFileSync(join(out, f)), antes[f], f);
+});
+
+test("cifrar recusa um --out que não é a pasta cifrada (e não toca em nada)", () => {
+  const { w, card } = cartao();
+  const claro = join(w, "claro"), mapa = join(w, "mapa.json"), mestra = join(w, "mestra");
+  execFileSync("python3", ["-I", join(ROOT, "data/mkmanifest.py"), card, claro]);
+  run("mestra", "--mestra", mestra);
+  for (const estranho of ["fotos.jpg", "sub/"]) {
+    const out = join(w, "out-" + estranho.replace(/\W/g, ""));
+    mkdirSync(out);
+    const opaco = join(out, "0123456789abcdef01234567");   // nome opaco que não está no mapa: seria apagado
+    writeFileSync(opaco, "x");
+    if (estranho.endsWith("/")) mkdirSync(join(out, estranho)); else writeFileSync(join(out, estranho), "meu");
+    assert.throws(() => execFileSync("node", [join(ROOT, "data/cifrar.mjs"), "cifrar", "--card", card, "--claro", claro,
+                                              "--out", out, "--mapa", mapa, "--mestra", mestra], { encoding: "utf8", stdio: "pipe" }),
+                  e => e.status === 1 && /não parece a pasta cifrada/.test(e.stderr));
+    assert.deepEqual(readdirSync(out).sort(), ["0123456789abcdef01234567", estranho.replace("/", "")].sort());
+    if (!estranho.endsWith("/")) assert.equal(readFileSync(join(out, estranho), "utf8"), "meu");
+    assert.ok(!existsSync(mapa));
+  }
 });
